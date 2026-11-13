@@ -1,0 +1,15 @@
+{
+  "name": "promptplaza-basic-skill",
+  "version": "0.1.0-beta.5",
+  "type": "module",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Free PromptPlaza Basic Skill: references, authorized originals, simple prompt adaptation and progressive questions",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {}
+}
