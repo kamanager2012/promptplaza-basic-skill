@@ -1,10 +1,10 @@
 # PromptPlaza Basic Skill
 
-免费的图片、视频提示词助手，当前版本 `0.1.0-beta.5`。用你现有的 Agent 检索参考、读取有权复制的原文，或写出一份完整提示词。软件采用 Apache-2.0 许可。
+免费的图片、视频提示词助手，当前版本 `0.1.0-beta.6`。用你现有的 Agent 检索参考、读取有权复制的原文，或写出一份完整提示词。软件采用 Apache-2.0 许可。
 
 免费功能：
 
-- 检索 PromptPlaza 案例，返回真实官网链接和独立的外部来源链接。
+- 检索 PromptPlaza 案例，返回真实官网链接、独立外部来源，以及现有作者、时长和模型证据标记。
 - 读取、下载当前公开且允许复制的完整原文；缺失、片段、翻译或受限内容不会补写成原文。
 - 根据你的要求逐问澄清，一次只问一个关键问题，已有信息不重复询问。
 - 使用自己的原稿或一条授权案例做基础改写，交付完整提示词。
@@ -16,7 +16,7 @@
 在项目根目录执行；目标目录已存在时先按下方升级说明处理：
 
 ```bash
-git clone --depth 1 --branch v0.1.0-beta.5 https://github.com/kamanager2012/promptplaza-basic-skill.git .agents/skills/promptplaza-basic
+git clone --depth 1 --branch v0.1.0-beta.6 https://github.com/kamanager2012/promptplaza-basic-skill.git .agents/skills/promptplaza-basic
 ```
 
 也可把发行ZIP内的九个文件解压到 `.agents/skills/promptplaza-basic/`，确保 `SKILL.md` 直接位于该目录。重新打开一个 Codex 会话后，用 `$promptplaza-basic` 显式调用。
@@ -35,9 +35,13 @@ Claude Code 的项目目录为 `.claude/skills/promptplaza-basic/`。本版本�
 
 ```bash
 node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search "产品广告" --kind image --limit 3
+node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search --author ACTUAL_RETURNED_HANDLE --limit 3
+node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search "product" --kind video --author ACTUAL_RETURNED_HANDLE --duration 16-30 --limit 3
 node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs get CASE_ID
 node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs download CASE_ID --output /absolute/private/new-prompt.txt
 ```
+
+`ACTUAL_RETURNED_HANDLE`使用结果中的真实author_handle。时长筛选使用实际返回的search_tags.duration分类；`16-30`只是示例，不是可任意填写的秒数表达式。按作者查询时可以省略主题。缺失作者和时长保持未知，模型标签及source_prompt只说明目录来源，不证明本Skill或Plaza复现成功。参考图需求与当前是否已提供素材须分别确认，封面不能当作已上传素材。
 
 下载目录须已存在，目标文件须是新文件，位于当前工作目录及安装目录之外。已有文件会被拒绝，不会覆盖。下载只保存原文，不保存任何生成图片或视频。`CASE_ID` 使用实际搜索结果，不是示例占位值。
 
@@ -59,7 +63,7 @@ node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs download CASE_ID -
 
 ## 验证范围与许可
 
-本版已验证九文件导出、客户端38项合成回归、实际Codex发现、指定视频任务和两轮逐问文字交付。原文接口的匿名读取/下载曾用字节相同的beta.4 CLI做过单案例现场验证；不能据此保证每个案例都可复制。真实会话新端点、自然触发、Claude执行及媒体质量仍未验证。
+本版候选已验证九文件导出、客户端43项合成回归、实际Codex发现，以及匿名作者/时长投影、仅作者查询、组合筛选和空结果。beta.5的指定视频任务与两轮逐问验收是历史证据；beta.6新增元数据说明没有另做模型行为验收。原文接口的匿名读取/下载曾在beta.4做过单案例现场验证；beta.6的get/download权限与完整性逻辑未改，只有离线回归，未重新现场读取原文。不能据此保证每个案例都可复制。真实会话新端点、自然触发、Claude执行及媒体质量仍未验证。
 
 在此目录运行 `npm test` 可执行离线客户端测试。测试使用合成数据，不生成媒体。
 

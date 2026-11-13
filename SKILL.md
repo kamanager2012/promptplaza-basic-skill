@@ -31,7 +31,10 @@ draft. Search results and questions alone do not need a draft status.
 
 1. Ask only for missing essential search intent, or use the user's topic directly.
 2. Use node scripts/plaza-basic.mjs search "<topic>" with limit 1-20 and optional
-   kind image|video, model, category, aspect or style filters.
+   kind image|video, model, category, aspect, style, author or duration filters.
+   Use an actual returned author_handle for `--author`; an author-only search
+   may omit the topic. For `--duration`, use a returned search_tags.duration ID
+   such as `16-30`, not an invented numeric range or unsupported filter.
 3. Select up to three relevant returned Case IDs; explain their content using
    public returned metadata without inventing or certifying original text.
    Use the returned `case_url` for the official detail page, and `source_url`
@@ -55,6 +58,20 @@ environment when present. No provider calls, no image/video generation and no
 multi-case remix.
 
 ## Missing sources and recoverable errors
+
+Search results may include author, author_handle, duration_s and the API's
+model_evidence_scope. Show available attribution and a useful catalog duration;
+missing fields stay unknown. Do not infer author identity from a URL, a shared
+author from visual similarity, or a Creator Series from a handle alone.
+`model_execution_verified_by_skill` is always false: an API label such as
+`source_prompt` or `publisher_declaration_not_verified_execution` is not a
+Plaza reproduction, a model call by this Skill or cross-model validation.
+
+The catalog has no reference-asset availability contract. If authorized source
+text explicitly requires a reference image/video, explain that requirement.
+Missing reference metadata does not mean no reference is needed. A cover image
+or description is not proof that the required asset is attached or readable
+in the current host. Do not fetch or upload media to fill that gap automatically.
 
 Search is usable anonymously; do not require signup before a public search.
 If `prompt_available` is false, explain `prompt_access` and the returned notice.

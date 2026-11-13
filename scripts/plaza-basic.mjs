@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DEFAULT_API = 'https://www.promptplaza.cn';
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/;
-const FILTERS = new Set(['kind','limit','offset','category','model','style','aspect']);
+const FILTERS = new Set(['kind','limit','offset','category','model','style','aspect','author','duration']);
 const MAX_JSON_BYTES = 1024 * 1024;
 const SKILL_ROOT = resolve(fileURLToPath(new URL('..',import.meta.url)));
 function failure(code) { const e = new Error(code); e.code = code; return e; }
@@ -198,6 +198,9 @@ async function readCase(id,fetchImpl,env) {
   return {...detail,source_endpoint_available:true,source_prompt_sha256:sourceHash};
 }
 function projectSearch(body,limit) {
+  const metadata=(value,max)=>typeof value==='string'&&value.trim()?value.trim().slice(0,max):null;
+  const durationTags=value=>Array.isArray(value)?[...new Set(value
+    .filter(x=>typeof x==='string'&&x.trim()&&x.length<=80).map(x=>x.trim()))].slice(0,8):[];
   const rows=Array.isArray(body.items)?body.items.slice(0,limit):[];
   return {schema:'promptplaza-basic-search-v1',
     total:Number.isInteger(body.total)?body.total:null,
@@ -206,6 +209,10 @@ function projectSearch(body,limit) {
       case_id:text(x.id,128),title:text(x.title||x.title_zh),kind:text(x.kind||x.type,24),
       ...caseLinks(x,x.id),
       model:text(x.model,80),aspect:text(x.aspect||x.ratio,20),
+      author:metadata(x.author,120),author_handle:metadata(x.author_handle,80),
+      duration_s:typeof x.duration_s==='number'&&Number.isFinite(x.duration_s)&&x.duration_s>0?x.duration_s:null,
+      search_tags:{duration:durationTags(object(x.search_tags).duration)},
+      model_evidence_scope:metadata(x.model_evidence_scope,120),model_execution_verified_by_skill:false,
       source_url:safeSourceUrl(x.source_url),
       rights_license:text(object(x.rights).license,120)||'UNSPECIFIED',
       prompt_available_in_listing:false};})};
@@ -241,19 +248,21 @@ async function writeNew(path,prompt){
 }
 export async function execute(argv,{env=process.env,fetchImpl=fetch,cwd=process.cwd()}={}){
   const {action,pos,opt}=options(argv);
-  if(action==='help')return {commands:['search TOPIC [--kind image|video] [--limit 1..20]',
+  if(action==='help')return {commands:['search [TOPIC] [--author HANDLE] [--duration TAG] [--kind image|video] [--limit 1..20]',
     'get CASE_ID','download CASE_ID --output /absolute/new/file.txt'],
     source:'live authorized Plaza API only',generation_calls:0};
   if(action==='search'){
     const query=pos.join(' ').trim();
-    if(!query||query.length>200)throw failure('SEARCH_QUERY_INVALID');
+    const author=opt.author===undefined?undefined:opt.author.trim().replace(/^@/,'').trim();
+    if((!query&&author===undefined)||query.length>200)throw failure('SEARCH_QUERY_INVALID');
     if(opt.kind&&!['image','video'].includes(opt.kind))throw failure('SEARCH_KIND_INVALID');
     const limit=integer(opt.limit,8,1,20),offset=integer(opt.offset,0,0,10000);
     const q=new URLSearchParams({q:query,limit:String(limit),offset:String(offset)});
-    for(const key of ['kind','category','model','style','aspect']){
+    for(const key of ['kind','category','model','style','aspect','author','duration']){
       if(opt[key]===undefined)continue;
-      if(!opt[key].trim()||opt[key].length>80)throw failure('SEARCH_FILTER_INVALID');
-      q.set(key,opt[key]);
+      const value=key==='author'?author:opt[key];
+      if(!value.trim()||value.length>80||/[\u0000-\u001f\u007f]/.test(value))throw failure('SEARCH_FILTER_INVALID');
+      q.set(key,value);
     }
     return projectSearch(await getJson('/v1/explore?'+q.toString(),fetchImpl,env),limit);
   }

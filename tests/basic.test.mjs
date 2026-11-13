@@ -60,6 +60,63 @@ test('search validates limits and filters before HTTP', async () => {
   await assert.rejects(run(['search', 'flower', '--offset', '-1'], m), { code: 'INVALID_INTEGER' });
   assert.equal(m.requests.length, 0);
 });
+test('search retains author, numeric duration and evidence without promoting verification or leaking private fields', async () => {
+  const m=fake({items:[{id:'case-1',kind:'video',author:' Fixture Author ',author_handle:'fixture_author',
+    duration_s:20.053333,search_tags:{duration:['16-30','16-30',' ',' 31-60 ']},
+    model:'fixture-model',model_evidence_scope:'source_prompt',canonical_path:'/case/case-1',
+    prompt:'PRIVATE_ORIGINAL',private_recipe:'PRIVATE_RECIPE',reference_assets:['PRIVATE_MEDIA']} ]});
+  const out=await run(['search','product','--kind','video'],m);
+  const item=out.items[0];
+  assert.equal(item.author,'Fixture Author');assert.equal(item.author_handle,'fixture_author');
+  assert.equal(item.duration_s,20.053333);assert.deepEqual(item.search_tags.duration,['16-30','31-60']);
+  assert.equal(item.model_evidence_scope,'source_prompt');assert.equal(item.model_execution_verified_by_skill,false);
+  assert.equal(item.prompt_available_in_listing,false);
+  assert.doesNotMatch(JSON.stringify(out),/PRIVATE_ORIGINAL|PRIVATE_RECIPE|PRIVATE_MEDIA/);
+  assert.equal(m.requests.length,1);
+});
+test('missing or malformed metadata stays unknown and is never reconstructed from source links', async () => {
+  const m=fake({items:[{},...['20',0,-1,null,Infinity].map(duration_s=>({duration_s,
+    author:42,author_handle:['guessed'],source_url:'https://x.com/not-an-author-evidence/status/1',
+    search_tags:{duration:'16-30'},model:'popular-model',model_evidence_scope:' '})),
+    {author:'x'.repeat(200),author_handle:'y'.repeat(100),model_evidence_scope:'verified',
+      search_tags:{duration:[null,42,{},'a'.repeat(81),...Array.from({length:12},(_,i)=>'tag-'+i)]}}]});
+  const out=await run(['search','video'],m);
+  for(const item of out.items.slice(0,6)){
+    assert.equal(item.author,null);assert.equal(item.author_handle,null);assert.equal(item.duration_s,null);
+    assert.equal(item.model_evidence_scope,null);assert.equal(item.model_execution_verified_by_skill,false);
+    assert.deepEqual(item.search_tags.duration,[]);
+  }
+  assert.equal(out.items[6].author.length,120);assert.equal(out.items[6].author_handle.length,80);
+  assert.equal(out.items[6].search_tags.duration.length,8);
+  assert.equal(out.items[6].model_evidence_scope,'verified');
+  assert.equal(out.items[6].model_execution_verified_by_skill,false);
+});
+test('author-only search can follow an actual handle without another topic or extra requests', async () => {
+  const m=fake({items:[]});
+  const out=await run(['search','--author',' @Fixture_Author ','--limit','3'],m);
+  const q=new URL(m.requests[0].url).searchParams;
+  assert.equal(q.get('author'),'Fixture_Author');assert.equal(q.get('q'),'');assert.equal(q.get('limit'),'3');
+  assert.deepEqual(out.items,[]);assert.equal(m.requests.length,1);
+});
+test('author and duration compose with existing filters using exact encoded values', async () => {
+  const m=fake({items:[]});
+  await run(['search','product & light','--author','@creator','--duration','16-30','--kind','video',
+    '--aspect','9:16','--model','fixture-model'],m);
+  const q=new URL(m.requests[0].url).searchParams;
+  assert.equal(q.get('q'),'product & light');assert.equal(q.get('author'),'creator');assert.equal(q.get('duration'),'16-30');
+  assert.equal(q.get('kind'),'video');assert.equal(q.get('aspect'),'9:16');assert.equal(q.get('model'),'fixture-model');
+  assert.equal(m.requests.length,1);
+});
+test('empty, excessive, control-bearing and unsupported filter options fail before HTTP', async () => {
+  const m=fake({items:[]});
+  for(const [key,value] of [['author',' @ '],['duration',' '],['author','x'.repeat(81)],
+    ['duration','x'.repeat(81)],['author','creator\nother'],['duration','16\u000030']]){
+    await assert.rejects(run(['search','product','--'+key,value],m),{code:'SEARCH_FILTER_INVALID'});
+  }
+  await assert.rejects(run(['search'],m),{code:'SEARCH_QUERY_INVALID'});
+  await assert.rejects(run(['search','product','--camera-motion','push'],m),{code:'INVALID_OPTION'});
+  assert.equal(m.requests.length,0);
+});
 test('get returns verbatim complete source text with unverified rights', async () => {
   const m = fake(caseBody());
   const out = await run(['get', 'case-1'], m);

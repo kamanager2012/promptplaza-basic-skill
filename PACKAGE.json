@@ -1,7 +1,7 @@
 {
   "schema": "promptplaza-basic-package-v1",
   "name": "promptplaza-basic",
-  "version": "0.1.0-beta.5",
+  "version": "0.1.0-beta.6",
   "license": "Apache-2.0",
   "status": "PUBLIC_BETA",
   "api_origin_default": "https://www.promptplaza.cn",
@@ -23,5 +23,11 @@
   "recoverable_error_guidance": true,
   "original_source_endpoint": "/v1/cases/{case_id}/prompt",
   "original_source_integrity_check": "sha256-and-utf8-bytes",
+  "search_attribution_metadata": true,
+  "search_filter_additions": [
+    "author",
+    "duration"
+  ],
+  "model_execution_certified": false,
   "distribution": "github-source-and-zip"
 }
