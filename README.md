@@ -1,6 +1,6 @@
 # PromptPlaza Basic Skill
 
-免费的图片、视频提示词助手，当前版本 `0.1.0-beta.6`。用你现有的 Agent 检索参考、读取有权复制的原文，或写出一份完整提示词。软件采用 Apache-2.0 许可。
+免费的图片、视频提示词助手，当前版本 `0.1.0-beta.7`。用你现有的 Agent 检索参考、读取有权复制的原文，或写出一份完整提示词。软件采用 Apache-2.0 许可。
 
 免费功能：
 
@@ -16,7 +16,7 @@
 在项目根目录执行；目标目录已存在时先按下方升级说明处理：
 
 ```bash
-git clone --depth 1 --branch v0.1.0-beta.6 https://github.com/kamanager2012/promptplaza-basic-skill.git .agents/skills/promptplaza-basic
+git clone --depth 1 --branch v0.1.0-beta.7 https://github.com/kamanager2012/promptplaza-basic-skill.git .agents/skills/promptplaza-basic
 ```
 
 也可把发行ZIP内的九个文件解压到 `.agents/skills/promptplaza-basic/`，确保 `SKILL.md` 直接位于该目录。重新打开一个 Codex 会话后，用 `$promptplaza-basic` 显式调用。
@@ -63,7 +63,9 @@ node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs download CASE_ID -
 
 ## 验证范围与许可
 
-本版候选已验证九文件导出、客户端43项合成回归、实际Codex发现，以及匿名作者/时长投影、仅作者查询、组合筛选和空结果。beta.5的指定视频任务与两轮逐问验收是历史证据；beta.6新增元数据说明没有另做模型行为验收。原文接口的匿名读取/下载曾在beta.4做过单案例现场验证；beta.6的get/download权限与完整性逻辑未改，只有离线回归，未重新现场读取原文。不能据此保证每个案例都可复制。真实会话新端点、自然触发、Claude执行及媒体质量仍未验证。
+beta.7仅修正下载失败后的保存位置说明，同时明确当前工作目录（包含子目录）和Skill安装目录。路径保护、请求和原文权限均未放宽。候选的九文件导出、安装/升级/移除及43项客户端合成回归已通过；CLI与私有审查候选字节一致。
+
+本轮另用公开beta.6安装包实际完成图片/视频检索、两条授权原文读取和一条866字节下载；重复下载未覆盖，非法路径在请求前拒绝。beta.6的Codex元数据发现、beta.5的指定视频文字与逐问任务均为历史证据。beta.7尚未做公开下载、宿主发现或模型行为验收，不能据此保证每个案例都可复制。真实受限原文、登录会话新端点、自然触发、Claude执行及媒体质量仍未验证。
 
 在此目录运行 `npm test` 可执行离线客户端测试。测试使用合成数据，不生成媒体。
 

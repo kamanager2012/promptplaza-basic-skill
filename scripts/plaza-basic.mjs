@@ -65,7 +65,7 @@ export function explainFailure(error) {
   }else if(code==='OUTPUT_EXISTS'){
     message='The output file already exists; it was not overwritten.';next='Choose a new absolute file path.';
   }else if(code.startsWith('OUTPUT_')||['ABSOLUTE_OUTPUT_REQUIRED','PROTECTED_OUTPUT'].includes(code)){
-    message='The output path cannot be used.';next='Choose an existing private directory and a new absolute file path outside the Skill repository.';
+    message='The output path cannot be used.';next='Choose an existing private directory and a new absolute file path outside both the current working directory (including its descendants) and the installed Skill directory.';
   }else if(['UNTRUSTED_SESSION_ORIGIN','HTTPS_REQUIRED','INVALID_API_ORIGIN','INVALID_SESSION'].includes(code)){
     message='The API or session configuration was rejected.';next='Use the official HTTPS API and an existing supported authorized session. Keep credentials out of chat.';
   }else if(code==='CASE_ID_RESPONSE_MISMATCH'||code.startsWith('API_')){
