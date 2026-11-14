@@ -6,7 +6,7 @@
 
 [开始安装](#快速开始) · [使用指南](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/docs/usage.md) · [兼容与验证范围](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/docs/compatibility.md) · [版本记录](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/CHANGELOG.md)
 
-当前免费预览版：[**0.1.0-beta.7**](https://github.com/kamanager2012/promptplaza-basic-skill/releases/tag/v0.1.0-beta.7) · **Apache-2.0** · CLI 需要 **Node.js 22+** · **无 npm 依赖**
+当前免费预览版：[**0.1.0-beta.8**](https://github.com/kamanager2012/promptplaza-basic-skill/releases/tag/v0.1.0-beta.8) · **Apache-2.0** · CLI 需要 **Node.js 22+** · **无 npm 依赖**
 
 ## 你可以用它做什么
 
@@ -28,10 +28,10 @@
 在项目根目录执行。目标目录已经存在时，先阅读下方升级说明，不要覆盖个人改动。
 
 ```bash
-git clone --depth 1 --branch v0.1.0-beta.7 https://github.com/kamanager2012/promptplaza-basic-skill.git .agents/skills/promptplaza-basic
+git clone --depth 1 --branch v0.1.0-beta.8 https://github.com/kamanager2012/promptplaza-basic-skill.git .agents/skills/promptplaza-basic
 ```
 
-也可下载 [beta.7 发行 ZIP](https://github.com/kamanager2012/promptplaza-basic-skill/releases/download/v0.1.0-beta.7/promptplaza-basic-0.1.0-beta.7.zip)，把其中九个文件解压到 `.agents/skills/promptplaza-basic/`，确保 `SKILL.md` 直接位于该目录。
+也可下载 [beta.8 发行 ZIP](https://github.com/kamanager2012/promptplaza-basic-skill/releases/download/v0.1.0-beta.8/promptplaza-basic-0.1.0-beta.8.zip)，把其中九个文件解压到 `.agents/skills/promptplaza-basic/`，确保 `SKILL.md` 直接位于该目录。
 
 ### 2. 检查安装
 
@@ -56,7 +56,7 @@ node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs help
 
 期望得到一份可复制的完整提示词；如有必要，只补问影响结果的信息。新写或改写稿会在正文外标注 `DRAFT_NOT_RUN`，说明尚未生成媒体或验证效果。这个示例是使用方法，不是当前版本的新一轮模型验收。
 
-Claude Code 的项目布局为 `.claude/skills/promptplaza-basic/`；目前仅检查过文件布局，尚未验证 Claude 执行。beta.7 已验证 Codex 安装与元数据发现；当前版本的模型行为、自然触发和其他宿主仍有未验证项，详见[兼容与验证范围](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/docs/compatibility.md)。
+Claude Code 的项目布局为 `.claude/skills/promptplaza-basic/`；目前仅检查过文件布局，尚未验证 Claude 执行。Codex 元数据发现的实测来自 beta.7；当前 beta.8 的模型行为、自然触发和其他宿主仍有未验证项，详见[兼容与验证范围](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/docs/compatibility.md)。
 
 ## 三种常用方式
 

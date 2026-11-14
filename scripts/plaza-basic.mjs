@@ -8,6 +8,7 @@ import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DEFAULT_API = 'https://www.promptplaza.cn';
+const OFFICIAL_API_ORIGINS = new Set([DEFAULT_API,'https://promptplaza.cn']);
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/;
 const FILTERS = new Set(['kind','limit','offset','category','model','style','aspect','author','duration']);
 const MAX_JSON_BYTES = 1024 * 1024;
@@ -66,8 +67,11 @@ export function explainFailure(error) {
     message='The output file already exists; it was not overwritten.';next='Choose a new absolute file path.';
   }else if(code.startsWith('OUTPUT_')||['ABSOLUTE_OUTPUT_REQUIRED','PROTECTED_OUTPUT'].includes(code)){
     message='The output path cannot be used.';next='Choose an existing private directory and a new absolute file path outside both the current working directory (including its descendants) and the installed Skill directory.';
-  }else if(['UNTRUSTED_SESSION_ORIGIN','HTTPS_REQUIRED','INVALID_API_ORIGIN','INVALID_SESSION'].includes(code)){
+  }else if(['UNTRUSTED_SESSION_ORIGIN','UNTRUSTED_API_ORIGIN','HTTPS_REQUIRED','INVALID_API_ORIGIN','INVALID_SESSION'].includes(code)){
     message='The API or session configuration was rejected.';next='Use the official HTTPS API and an existing supported authorized session. Keep credentials out of chat.';
+  }else if(code==='API_SEARCH_CONTRACT_INVALID'){
+    message='The service returned an invalid search response.';
+    next='Keep your search terms and retry manually later; an invalid response does not mean no matching cases exist.';
   }else if(code==='CASE_ID_RESPONSE_MISMATCH'||code.startsWith('API_')){
     message='The service returned an unusable response.';next='Open the official site or try another case; do not invent missing source text or links.';
   }
@@ -106,7 +110,8 @@ async function getJson(path, fetchImpl, env) {
   const origin=originOf(env.PROMPTPLAZA_API_BASE||DEFAULT_API);
   const token=env.PROMPTPLAZA_TOKEN||'';
   if(typeof token!=='string'||token.length>4096||/\s/.test(token)) throw failure('INVALID_SESSION');
-  if(token&&!origin.local&&!['https://www.promptplaza.cn','https://promptplaza.cn'].includes(origin.url))throw failure('UNTRUSTED_SESSION_ORIGIN');
+  if(token&&!origin.local&&!OFFICIAL_API_ORIGINS.has(origin.url))throw failure('UNTRUSTED_SESSION_ORIGIN');
+  if(!origin.local&&!OFFICIAL_API_ORIGINS.has(origin.url))throw failure('UNTRUSTED_API_ORIGIN');
   const headers={Accept:'application/json'};
   if(token)headers.Authorization='Bearer '+token;
   let response;
@@ -198,10 +203,11 @@ async function readCase(id,fetchImpl,env) {
   return {...detail,source_endpoint_available:true,source_prompt_sha256:sourceHash};
 }
 function projectSearch(body,limit) {
+  if(!Array.isArray(body.items))throw failure('API_SEARCH_CONTRACT_INVALID');
   const metadata=(value,max)=>typeof value==='string'&&value.trim()?value.trim().slice(0,max):null;
   const durationTags=value=>Array.isArray(value)?[...new Set(value
     .filter(x=>typeof x==='string'&&x.trim()&&x.length<=80).map(x=>x.trim()))].slice(0,8):[];
-  const rows=Array.isArray(body.items)?body.items.slice(0,limit):[];
+  const rows=body.items.slice(0,limit);
   return {schema:'promptplaza-basic-search-v1',
     total:Number.isInteger(body.total)?body.total:null,
     next_offset:Number.isInteger(body.next_offset)?body.next_offset:null,
