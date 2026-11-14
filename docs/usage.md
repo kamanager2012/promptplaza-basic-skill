@@ -40,6 +40,8 @@ node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs download CASE_ID -
 
 公开检索无需登录。已有合法宿主会话可通过执行环境中的 `PROMPTPLAZA_TOKEN` 使用；会话不保证原文可访问。不要把 token 直接写入命令历史、文档、Issue 或聊天，不要从浏览器提取会话。默认 API 为 `https://www.promptplaza.cn`，不要把凭据转发到其他服务。
 
+远程 API 仅接受 `https://www.promptplaza.cn` 和 `https://promptplaza.cn`，匿名请求也遵守此限制；其他主机和非标准端口会在发请求前拒绝。Loopback 地址仅用于你明确配置的本地调试，不是官方来源或生产接口的验证证据。
+
 ## 识别交付状态
 
 | 输出 | 如何理解 |
@@ -58,6 +60,8 @@ node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs download CASE_ID -
 | Codex 找不到 Skill | 检查 `SKILL.md` 是否直接位于 `.agents/skills/promptplaza-basic/`，重开会话并显式调用；这不等于自然触发已获保证 |
 | Node 版本不足或找不到 `node` | 安装 Node.js 22+，重开终端并运行 `node --version`；自己的文字原稿仍可直接交给 Agent |
 | 搜索为空 | 放宽一个条件或换一个主题；不要自动连续翻页采集 |
+| `API_SEARCH_CONTRACT_INVALID` | 服务返回格式异常，不能当成没有匹配；保留搜索条件，稍后手动重试 |
+| `UNTRUSTED_API_ORIGIN` | 移除非官方 API 配置，恢复官方 HTTPS 地址；不会向被拒绝主机发请求 |
 | 401 / 403、原文不可用 | 检查已有合法会话，或打开官网案例、使用自己的文本；不要绕过访问限制 |
 | 404 | 案例或接口暂不可用，可换案例或用自己的原稿；旧元数据接口不能解锁原文 |
 | 429 | 稍后由你手动重试，不循环请求 |

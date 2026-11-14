@@ -247,6 +247,35 @@ test('authorized session is sent only to trusted site', async () => {
   assert.equal(standard.requests[0].auth,'Bearer synthetic-session');
 });
 
+test('anonymous source reads reject nonofficial remote origins before fetching', async () => {
+  for(const base of ['https://example.org','https://www.promptplaza.cn:8443']){
+    const m=fake(caseBody());
+    await assert.rejects(run(['get','case-1'],m,{PROMPTPLAZA_API_BASE:base}),
+      {code:'UNTRUSTED_API_ORIGIN'});
+    assert.equal(m.requests.length,0);
+  }
+  for(const base of ['https://promptplaza.cn','https://www.promptplaza.cn:443','http://127.0.0.1:8790']){
+    const m=fake(caseBody());
+    assert.equal((await run(['get','case-1'],m,{PROMPTPLAZA_API_BASE:base})).prompt_available,true);
+    assert.equal(m.requests.length,1);
+  }
+  const failure=explainFailure({code:'UNTRUSTED_API_ORIGIN'});
+  assert.match(failure.next_step,/official HTTPS API/);
+  assert.equal(failure.retryable,false);
+});
+
+test('invalid search shapes are errors while a valid empty result stays successful', async () => {
+  for(const body of [{},{items:{}},{items:null},{error:'synthetic failure'}]){
+    await assert.rejects(run(['search','cup'],fake(body)),{code:'API_SEARCH_CONTRACT_INVALID'});
+  }
+  const empty=await run(['search','cup'],fake({items:[],total:0,next_offset:null}));
+  assert.deepEqual(empty.items,[]);
+  assert.equal(empty.total,0);
+  const failure=explainFailure({code:'API_SEARCH_CONTRACT_INVALID'});
+  assert.match(failure.next_step,/Keep your search terms/);
+  assert.equal(failure.retryable,false);
+});
+
 test('source schema and version must be explicit before accepting an original', async () => {
   for(const extra of [{schema:undefined},{source:'unverified'},{ok:undefined}]){
     await assert.rejects(run(['get','case-1'],fake({...caseBody(),...extra})),
