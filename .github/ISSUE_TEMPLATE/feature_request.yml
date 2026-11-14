@@ -1,0 +1,16 @@
+name: 功能或文档建议
+description: 描述一个需要改善的任务
+title: "[Idea] "
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: 你要完成什么任务
+      description: 说明现在卡在哪里，以及怎样的结果会更有用。不包含真实隐私或未授权内容。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议与替代方法
+      description: 可选。Basic 当前聚焦文字工作流，高级二创与媒体生成不在免费包内。

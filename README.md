@@ -1,72 +1,120 @@
 # PromptPlaza Basic Skill
 
-免费的图片、视频提示词助手，当前版本 `0.1.0-beta.7`。用你现有的 Agent 检索参考、读取有权复制的原文，或写出一份完整提示词。软件采用 Apache-2.0 许可。
+**在你的 Agent 中寻找图片与视频参考，写出完整提示词。**
 
-免费功能：
+免费的开源 Skill，连接 [PromptPlaza 案例库](https://www.promptplaza.cn/)，支持参考检索、授权原文取用、逐问澄清和单案例基础改写。文字创作由你现有的 Agent 完成。
 
-- 检索 PromptPlaza 案例，返回真实官网链接、独立外部来源，以及现有作者、时长和模型证据标记。
-- 读取、下载当前公开且允许复制的完整原文；缺失、片段、翻译或受限内容不会补写成原文。
-- 根据你的要求逐问澄清，一次只问一个关键问题，已有信息不重复询问。
-- 使用自己的原稿或一条授权案例做基础改写，交付完整提示词。
+[开始安装](#快速开始) · [使用指南](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/docs/usage.md) · [兼容与验证范围](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/docs/compatibility.md) · [版本记录](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/CHANGELOG.md)
 
-文字创作由你的 Agent 完成，其订阅或模型额度与本 Skill 分开。此包不包含图片/视频生成额度，不调用私有二创引擎；高级二创、批量任务和多案例融合尚未开放。
+当前免费预览版：[**0.1.0-beta.7**](https://github.com/kamanager2012/promptplaza-basic-skill/releases/tag/v0.1.0-beta.7) · **Apache-2.0** · CLI 需要 **Node.js 22+** · **无 npm 依赖**
 
-## 安装到 Codex 项目
+## 你可以用它做什么
 
-在项目根目录执行；目标目录已存在时先按下方升级说明处理：
+| 你的任务 | Basic 的交付 |
+| --- | --- |
+| 找图片或视频创作参考 | 案例摘要、真实官网链接，以及可用的作者、时长等信息 |
+| 取用一条案例提示词 | 当前允许复制的完整原文；也可明确要求保存为新的本地文本文件 |
+| 把模糊想法写清楚 | 使用已知信息，必要时一次问一个关键问题，再给出完整提示词 |
+| 把一个案例改成自己的需求 | 使用你提供的原稿或一条授权案例，说明保留与修改内容，交付完整改写稿 |
+
+公开检索无需注册。完整原文是否可用，取决于该案例的发布、复制权限和服务规则。原文不可用时，Skill 会说明原因、给出官网链接，或根据你自己的需求另写草稿。
+
+**费用与范围：**Skill 免费；你的 Agent 订阅或模型用量另计。Basic 交付文字，不包含图片/视频生成额度。高级服务端二创、多案例融合和批量任务尚未开放。
+
+## 快速开始
+
+### 1. 安装到 Codex 项目
+
+在项目根目录执行。目标目录已经存在时，先阅读下方升级说明，不要覆盖个人改动。
 
 ```bash
 git clone --depth 1 --branch v0.1.0-beta.7 https://github.com/kamanager2012/promptplaza-basic-skill.git .agents/skills/promptplaza-basic
 ```
 
-也可把发行ZIP内的九个文件解压到 `.agents/skills/promptplaza-basic/`，确保 `SKILL.md` 直接位于该目录。重新打开一个 Codex 会话后，用 `$promptplaza-basic` 显式调用。
+也可下载 [beta.7 发行 ZIP](https://github.com/kamanager2012/promptplaza-basic-skill/releases/download/v0.1.0-beta.7/promptplaza-basic-0.1.0-beta.7.zip)，把其中九个文件解压到 `.agents/skills/promptplaza-basic/`，确保 `SKILL.md` 直接位于该目录。
 
-示例：`请使用 $promptplaza-basic，为我的蓝色陶瓷杯写一条10秒产品视频提示词，光线从左向右掠过，镜头缓慢推近后停稳。只写文字，不生成视频。`
+### 2. 检查安装
 
-直接提供原稿或创作需求时无需 Node。使用案例检索、读取和下载命令需要 Node.js 22 或更新版本，没有 npm 依赖，无需安装模型 SDK 或配置供应商密钥。
-
-基础改写与逐问由 Agent 完成，CLI 没有 `rewrite` 或 `grillme` 子命令，也不能直接访问私有 Recipe 算法。
-
-Claude Code 的项目目录为 `.claude/skills/promptplaza-basic/`。本版本仅核对该布局的文件身份，未实际验证 Claude 引擎；已验证范围是 Codex 的显式调用。自然触发、其他宿主和云端会话不作通用支持保证。
-
-## 已安装命令
-
-以下命令路径从项目根目录书写；在其他位置使用脚本的绝对路径，保持当前工作目录：
+使用案例检索、读取和下载命令时，先确认 Node.js 为 22 或更新版本，再运行无需联网的自检：
 
 ```bash
-node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search "产品广告" --kind image --limit 3
-node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search --author ACTUAL_RETURNED_HANDLE --limit 3
-node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search "product" --kind video --author ACTUAL_RETURNED_HANDLE --duration 16-30 --limit 3
-node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs get CASE_ID
-node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs download CASE_ID --output /absolute/private/new-prompt.txt
+node --version
+node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs help
 ```
 
-`ACTUAL_RETURNED_HANDLE`使用结果中的真实author_handle。时长筛选使用实际返回的search_tags.duration分类；`16-30`只是示例，不是可任意填写的秒数表达式。按作者查询时可以省略主题。缺失作者和时长保持未知，模型标签及source_prompt只说明目录来源，不证明本Skill或Plaza复现成功。参考图需求与当前是否已提供素材须分别确认，封面不能当作已上传素材。
+成功时输出 JSON，列出 `search`、`get`、`download`，并显示 `generation_calls: 0`。不需要执行 `npm install`，也不需要模型供应商密钥。只用自己的原稿进行文字创作时无需 Node。
 
-下载目录须已存在，目标文件须是新文件，位于当前工作目录及安装目录之外。已有文件会被拒绝，不会覆盖。下载只保存原文，不保存任何生成图片或视频。`CASE_ID` 使用实际搜索结果，不是示例占位值。
+### 3. 完成第一次创作
 
-公开检索无需注册。完整原文取决于当前发布状态、复制许可与服务规则；请求限制仍适用。已有合法宿主会话可通过执行环境的 `PROMPTPLAZA_TOKEN` 使用，不要向聊天、issue或截图粘贴token，也不要提取浏览器凭据。
+重新打开一个 Codex 会话，显式调用：
 
-## 原文、草稿与错误恢复
+```text
+请使用 $promptplaza-basic，为蓝色陶瓷杯写一条10秒产品视频提示词。
+杯子保持静止，光线从左向右掠过，镜头缓慢推近后停稳。
+不要文字和商标。只交付完整文字提示词，不生成视频。
+```
 
-新写或改写的图片/视频提示词会在可复制文本之外标注 `DRAFT_NOT_RUN`，说明它只是文字草稿，尚未生成或验证效果。取回和下载的原文保持原有字节，不会加入这个状态或改称 Agent 原创。
+期望得到一份可复制的完整提示词；如有必要，只补问影响结果的信息。新写或改写稿会在正文外标注 `DRAFT_NOT_RUN`，说明尚未生成媒体或验证效果。这个示例是使用方法，不是当前版本的新一轮模型验收。
 
-有权读取或复制不等于有权再发布。原文、作者作品和媒体保留各自权利；`NOASSERTION` 表示没有确认再发布或商用许可。不要自动提交或转载下载的案例正文。
+Claude Code 的项目布局为 `.claude/skills/promptplaza-basic/`；目前仅检查过文件布局，尚未验证 Claude 执行。beta.7 已验证 Codex 安装与元数据发现；当前版本的模型行为、自然触发和其他宿主仍有未验证项，详见[兼容与验证范围](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/docs/compatibility.md)。
 
-找不到结果时可放宽一个条件；原文缺失或受限时打开返回的官网链接，或提供自己有权使用的文本。会话失效、限流、超时和服务错误会给出下一步，重试由你决定，不会自动反复请求或调用收费功能。
+## 三种常用方式
+
+以下均为合成使用示例，不包含第三方案例正文，也不表示媒体效果已复现。
+
+**寻找参考**
+
+```text
+使用 $promptplaza-basic，找3条极简产品海报参考。
+给我官网链接和可借鉴的构图特点，先不要改写。
+```
+
+**从自己的需求开始**
+
+```text
+使用 $promptplaza-basic，为一款白色无标识运动鞋写一条图片提示词。
+米灰背景，侧面构图，柔和接触阴影，不加文字。直接给我完整稿。
+```
+
+**只修改指定内容**
+
+```text
+使用 $promptplaza-basic，改写我下面提供的完整提示词。
+保持主体、构图和色彩，只把室内背景改成阴天户外。不要增加人物。
+先给完整改写稿，再简要说明保留与修改了什么。
+[在这里粘贴你有权使用的原稿]
+```
+
+Agent 完成逐问和改写；CLI 提供 `search`、`get`、`download` 三个命令。命令参数、原文下载与常见错误见[使用指南](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/docs/usage.md)。
+
+## 数据与许可
+
+- 文字创作在你的 Agent 宿主完成；案例查询通过 HTTPS 请求 PromptPlaza。CLI 不上传素材，不调用生成模型或私有二创引擎。
+- 下载只保存当前允许复制的完整原文；片段、翻译、受限或缺失内容不会被补写成“原文”。已有文件不会被覆盖。
+- 原文和作品保留各自权利。可读取、可复制不等于获得商用或再发布许可；`NOASSERTION` 表示许可未确认。
+- 合法会话只通过已有宿主的执行环境使用。不要在聊天、Issue、截图或仓库中粘贴 token，也不要提取浏览器凭据。
+
+Apache-2.0 覆盖本仓库软件与说明，见 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和 [THIRD-PARTY.md](THIRD-PARTY.md)；不覆盖 API 数据、第三方原文或媒体。
 
 ## 升级与移除
 
-升级前保留自己的改动，检查版本差异，再用新发行包完整替换这个 Skill 目录；不要把案例原文或个人文件放进安装目录。重新打开宿主会话。Git安装可先fetch新tag，确认本地无改动后切换到该tag。
+先查看[版本记录](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/CHANGELOG.md)，保留本地改动，再用新发行包完整替换安装目录。Git 安装可在确认工作树无改动后 fetch 并切换到目标 tag。重新打开宿主会话。不要把案例原文或个人文件放进安装目录。
 
-移除时仅删除你安装的 `.agents/skills/promptplaza-basic/`（或对应Claude目录），再重开会话。不会删除独立下载的原文文件，也不需要退出网站账号。备份或处理安装目录中的个人改动后再移除。
+移除时仅处理你安装的 `.agents/skills/promptplaza-basic/`（或对应 Claude 目录），先备份其中的个人改动，再删除该目录并重开会话。独立下载的文件需另行管理。
 
-## 验证范围与许可
+版本安装固定到 tag。仓库 `main` 可更新文档和维护工具；已发布的 tag 与 ZIP 保持不变。
 
-beta.7仅修正下载失败后的保存位置说明，同时明确当前工作目录（包含子目录）和Skill安装目录。路径保护、请求和原文权限均未放宽。候选的九文件导出、安装/升级/移除及43项客户端合成回归已通过；CLI与私有审查候选字节一致。
+## 仓库结构与参与
 
-本轮另用公开beta.6安装包实际完成图片/视频检索、两条授权原文读取和一条866字节下载；重复下载未覆盖，非法路径在请求前拒绝。beta.6的Codex元数据发现、beta.5的指定视频文字与逐问任务均为历史证据。beta.7尚未做公开下载、宿主发现或模型行为验收，不能据此保证每个案例都可复制。真实受限原文、登录会话新端点、自然触发、Claude执行及媒体质量仍未验证。
+```text
+SKILL.md                  Agent 使用入口
+scripts/plaza-basic.mjs    无依赖、只读案例 CLI
+tests/basic.test.mjs       合成客户端回归
+docs/                     使用指南与兼容证据
+.github/                  持续检查、Issue 与 PR 模板
+tools/                    仓库及安装文件检查
+```
 
-在此目录运行 `npm test` 可执行离线客户端测试。测试使用合成数据，不生成媒体。
+安装 ZIP 只包含九个运行、测试及许可说明文件；仓库维护文档和 CI 不进入 ZIP。`package.json` 的 `private: true` 用来防止误发 npm 包，不代表这个 GitHub 仓库私有。
 
-Apache-2.0仅覆盖本仓库软件和说明，见 [LICENSE](LICENSE)、[NOTICE](NOTICE) 与 [THIRD-PARTY.md](THIRD-PARTY.md)。API数据、原文和作品不包含在此授权中。
+[报告问题](https://github.com/kamanager2012/promptplaza-basic-skill/issues/new/choose) · [贡献指南](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/CONTRIBUTING.md) · [安全报告](https://github.com/kamanager2012/promptplaza-basic-skill/blob/main/SECURITY.md)
