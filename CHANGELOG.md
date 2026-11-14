@@ -5,6 +5,7 @@
 - 重整首页定位、固定版本安装、自检和三类使用示例。
 - 补齐使用/错误恢复、按版本区分的兼容证据、贡献与私密安全报告入口。
 - 增加公开仓库离线检查、Issue/PR 模板和显式仓库文件清单。
+- 根据真实 GitHub 页面复验，修正费用段落的 Markdown 强调显示。
 - beta.7 运行代码与 Skill 指令不变；未创建新版本、重写旧 tag 或替换发行 ZIP。
 
 ## [0.1.0-beta.7](https://github.com/kamanager2012/promptplaza-basic-skill/releases/tag/v0.1.0-beta.7) — 2026-11-13
