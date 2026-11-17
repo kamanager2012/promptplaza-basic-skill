@@ -1,6 +1,12 @@
 # 变更日志
 
 
+## [0.2.0-beta.1] — 2026-11-17
+
+- Unified full creative client, existing-account terminal login/logout and private session storage.
+- Free account10creative/50search daily; same features, membership reserved.
+- Metered search with bounded free continuation and request recovery. Proprietary core remains server-side; no media generation included.
+
 ## [0.1.0-beta.8](https://github.com/kamanager2012/promptplaza-basic-skill/releases/tag/v0.1.0-beta.8) — 2026-11-14
 
 - 匿名远程请求也固定到官方 HTTPS API，拒绝第三方自报原文及非标准端口；本地调试仍可显式使用 loopback。
