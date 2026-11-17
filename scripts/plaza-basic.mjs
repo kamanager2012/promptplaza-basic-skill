@@ -38,7 +38,7 @@ const SERVICE_ERRORS = new Set([
   'SKILL_ASSET_INPUT_INVALID','SKILL_CASE_UNAVAILABLE','SKILL_RECIPE_NOT_FOUND','SKILL_RECIPE_INPUT_INVALID',
   'SOURCE_PROMPT_MISSING','SOURCE_PROMPT_TOO_LARGE','SPEC_TOO_LARGE',
   'SKILL_REQUEST_PENDING','SKILL_REQUEST_UNKNOWN','SKILL_REQUEST_NOT_FOUND','SKILL_RECEIPT_LIMIT','SKILL_ORIGIN_DENIED',
-  'SKILL_SEARCH_UNAVAILABLE','SKILL_SEARCH_CURSOR_INVALID','SKILL_SEARCH_EXPIRED'
+  'SKILL_SEARCH_UNAVAILABLE','SKILL_SEARCH_CURSOR_INVALID','SKILL_SEARCH_EXPIRED','SKILL_REQUEST_RECOVERED'
 ]);
 const SKILL_ROOT = resolve(fileURLToPath(new URL('..',import.meta.url)));
 function failure(code) { const e = new Error(code); e.code = code; return e; }
@@ -106,6 +106,9 @@ export function explainFailure(error) {
   }else if(code==='SKILL_REQUEST_NOT_FOUND'){
     message='No request receipt was found for this signed-in account.';
     next='Check the original request ID and account. Do not infer another account has no task.';
+  }else if(code==='SKILL_REQUEST_RECOVERED'){
+    message='The interrupted request was closed by an operator and its reservation was released.';
+    next='Run usage and status with the original request ID. That ID remains failed; start a new task only when you explicitly choose to do so.';
   }else if(code==='SKILL_RECEIPT_LIMIT'){
     message='The service request safety limit has been reached.';
     next='Keep existing request IDs for status or replay. This safety limit does not unlock different features for another plan.';
@@ -346,8 +349,12 @@ function projectRequestStatus(body, requestId) {
       typeof body.policy_version!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(body.policy_version)||
       !['created_at','updated_at'].every(key=>typeof body[key]==='string'&&body[key].length<=40&&Number.isFinite(Date.parse(body[key]))))
     throw failure('API_SKILL_CONTRACT_INVALID');
+  if((body.resolution!==undefined||body.failure_code!==undefined)&&
+      !(body.state==='FAILED'&&body.resolution==='RESERVATION_RELEASED'&&body.failure_code==='SKILL_REQUEST_RECOVERED'))
+    throw failure('API_SKILL_CONTRACT_INVALID');
   const {schema,request_id,operation,state,bucket,quota_day,policy_version,created_at,updated_at}=body;
-  return {ok:true,schema,request_id,operation,state,bucket,quota_day,policy_version,created_at,updated_at,execution:'NOT_RUN',generation_calls:0};
+  return {ok:true,schema,request_id,operation,state,bucket,quota_day,policy_version,created_at,updated_at,
+    ...(body.resolution ? {resolution:body.resolution,failure_code:body.failure_code} : {}),execution:'NOT_RUN',generation_calls:0};
 }
 const plainRecord=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const completeText=(value,max=262144)=>typeof value==='string'&&!!value.trim()&&Buffer.byteLength(value,'utf8')<=max;

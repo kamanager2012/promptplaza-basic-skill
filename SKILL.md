@@ -9,7 +9,7 @@ Turn the user's idea or references into a complete image/video Prompt, with
 clear preservation, changes and follow-up revisions. Creative adaptation is the
 core workflow; search supplies relevant references when the task needs them.
 
-This is unified client **0.2.0-beta.2**, retaining `promptplaza-basic`
+This is unified client **0.2.0-beta.3**, retaining `promptplaza-basic`
 for installation compatibility. Confirm availability through `capabilities`;
 help text alone is not live service evidence. Basic beta.8 remains a historical
 search/get/download release.
@@ -110,6 +110,9 @@ returns a draft or bypasses current case permissions. For a completed draft,
 manually replay the original operation with the exact input and request ID.
 For PENDING or UNKNOWN, retain the original request and check status; do not
 replace it, locally release its reservation or automatically resubmit it.
+If status reports FAILED with RESERVATION_RELEASED / SKILL_REQUEST_RECOVERED,
+an operator has closed the interrupted claim. Check usage; the old key remains
+terminal. A new task/key requires the user's explicit choice, never an automatic retry.
 A new valid search (including zero results) consumes one search; the same request
 ID and same query replays without another debit. Use returned `next_cursor` via
 `search --cursor TOKEN` for up to5 pages of that search within1h, with current
