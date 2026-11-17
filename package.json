@@ -1,10 +1,10 @@
 {
   "name": "promptplaza-basic-skill",
-  "version": "0.1.0-beta.8",
+  "version": "0.2.0-beta.1",
   "type": "module",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Free PromptPlaza Basic Skill: references, authorized originals, simple prompt adaptation and progressive questions",
+  "description": "PromptPlaza Skill client: image/video prompt creation and remix through a shared private service, supported by case search and authorized originals",
   "scripts": {
     "test": "node --test tests/*.test.mjs"
   },

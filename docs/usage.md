@@ -2,11 +2,13 @@
 
 [返回首页](../README.md) · [兼容与验证范围](compatibility.md)
 
-## 选择使用方式
+## 登录与创作
 
-有自己的原稿或创作需求时，直接让 Agent 使用 `$promptplaza-basic`。基础逐问和单案例改写由宿主 Agent 完成，不需要新的模型 SDK，也没有 `rewrite` 或 `grillme` CLI 命令。
+统一客户端0.2.0-beta.1。让 Agent 使用 `$promptplaza-basic` 完成图片/视频提示词、逐问、多案例二创和指定镜头修订。完整协议见 [SKILL.md](../SKILL.md)；私有核心在服务器，生成媒体另行操作。
 
-找站内参考或读取原文时，使用下面的只读 CLI。示例路径从项目根目录书写；在其他位置运行时，换成脚本的绝对路径，保持当前工作目录。不要通过切换目录绕过下载保护。
+请在自己的终端运行 `node /absolute/path/scripts/plaza-basic.mjs login`，使用网站账号，密码输入隐藏。密码不保存，会话单独保存在 `~/.local/state/promptplaza/session.json`（目录0700/文件0600）；不要发送密码或token到聊天。`logout` 删除本机会话并报告服务端撤销结果。
+
+免费账号每天创作10次、搜索50次，上海时间零点恢复。会员暂不开收费，功能相同。网页匿名浏览保持原样。`usage` 查看当前额度，`status REQUEST_ID` 查询自己的任务；PENDING/UNKNOWN 不换键重试。
 
 ## 检索参考
 
@@ -38,7 +40,7 @@ node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs download CASE_ID -
 
 完整原文来自 `/v1/cases/:id/prompt`，需要匹配的案例 ID、完整状态、复制许可、SHA-256 和 UTF-8 字节数。校验只验证返回内容的完整性，不证明作者身份或再发布权利。原文保持原有字节，不加入草稿标记。
 
-公开检索无需登录。已有合法宿主会话可通过执行环境中的 `PROMPTPLAZA_TOKEN` 使用；会话不保证原文可访问。不要把 token 直接写入命令历史、文档、Issue 或聊天，不要从浏览器提取会话。默认 API 为 `https://www.promptplaza.cn`，不要把凭据转发到其他服务。
+本版客户端的搜索和二创使用网站账号，官网匿名浏览保持原样。已有合法宿主会话可通过执行环境中的 `PROMPTPLAZA_TOKEN` 使用；会话不保证原文可访问。不要把 token 直接写入命令历史、文档、Issue 或聊天，不要从浏览器提取会话。默认 API 为 `https://www.promptplaza.cn`，不要把凭据转发到其他服务。
 
 远程 API 仅接受 `https://www.promptplaza.cn` 和 `https://promptplaza.cn`，匿名请求也遵守此限制；其他主机和非标准端口会在发请求前拒绝。Loopback 地址仅用于你明确配置的本地调试，不是官方来源或生产接口的验证证据。
 
@@ -72,3 +74,5 @@ node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs download CASE_ID -
 CLI 成功退出码为 0；失败为 2，并在标准错误输出保留机器错误码、`message`、`next_step` 和 `retryable`。不要把失败当作自动切换收费服务、补写受限原文或上传素材的授权。
 
 需要反馈时，请提供版本、Node/宿主信息、脱敏后的触发步骤和错误码。参见[贡献指南](../CONTRIBUTING.md)；安全问题使用[私密报告入口](../SECURITY.md)。
+
+新搜索使用计量接口；用返回的 `next_cursor` 翻页，最多5页/1小时，不再扣搜索次数。非零offset已不支持。查询条件改变时使用新的请求键。

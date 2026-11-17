@@ -80,7 +80,9 @@ def check(payload: dict[str, bytes]) -> dict:
     require(meta['version'] == npm['version'] and npm['engines']['node'] == '>=22', 'VERSION_CONTRACT')
     require(meta['status'] == 'PUBLIC_BETA' and npm['private'] is True
             and meta['license'] == npm['license'] == 'Apache-2.0', 'DISTRIBUTION_POLICY')
-    require(meta['allowed_commands'] == ['search', 'get', 'download']
+    require(meta['allowed_commands'] == ['search', 'get', 'download', 'capabilities', 'creative', 'usage', 'status', 'login', 'logout']
+            and meta.get('same_features_for_all_account_tiers') is True
+            and meta.get('features_mode') == 'shared_client_remote_private_core'
             and meta['proprietary_source_files_included'] is False
             and meta['model_execution_by_package'] is False
             and not npm.get('dependencies') and not npm.get('devDependencies'), 'BASIC_BOUNDARY')
@@ -144,7 +146,11 @@ def smoke(root: Path, payload: dict[str, bytes]) -> dict:
         output = run(['node', '--test-concurrency=1', '--test-timeout=10000', '--test', 'tests/basic.test.mjs'])
         print(output.decode(), end='')
         help_result = json.loads(run(['node', 'scripts/plaza-basic.mjs', 'help']))
-        require(help_result['generation_calls'] == 0 and len(help_result['commands']) == 3, 'INSTALLED_HELP')
+        require(help_result['generation_calls'] == 0 and len(help_result['commands']) == 9
+                and set(help_result.get('creative_operations', [])) == {
+                    'compile', 'revise', 'remix', 'remix-revise',
+                    'interview-new', 'interview-next', 'interview-answer',
+                    'case-ideas', 'recipe-catalog', 'recipe-compile'}, 'INSTALLED_HELP')
         require(all((target / n).read_bytes() == payload[n] for n in INSTALL), 'INSTALLED_BYTES')
         return {'clean_nine_file_installation': 'PASS', 'client_regressions': 'PASS',
                 'help_native_exit': 0, 'business_requests': 0, 'model_media_calls': 0}

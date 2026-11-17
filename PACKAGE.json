@@ -1,14 +1,20 @@
 {
   "schema": "promptplaza-basic-package-v1",
   "name": "promptplaza-basic",
-  "version": "0.1.0-beta.8",
+  "version": "0.2.0-beta.1",
   "license": "Apache-2.0",
   "status": "PUBLIC_BETA",
   "api_origin_default": "https://www.promptplaza.cn",
   "allowed_commands": [
     "search",
     "get",
-    "download"
+    "download",
+    "capabilities",
+    "creative",
+    "usage",
+    "status",
+    "login",
+    "logout"
   ],
   "advanced_creative_features_included": false,
   "proprietary_source_files_included": false,
@@ -29,5 +35,46 @@
     "duration"
   ],
   "model_execution_certified": false,
+  "features_mode": "shared_client_remote_private_core",
+  "same_features_for_all_account_tiers": true,
+  "remote_private_creative_operations": [
+    "compile",
+    "revise",
+    "remix",
+    "remix-revise",
+    "interview-new",
+    "interview-next",
+    "interview-answer",
+    "case-ideas",
+    "recipe-catalog",
+    "recipe-compile"
+  ],
+  "remote_service_status": "FREE_ACCOUNT_SERVICE",
+  "remote_service_requires": [
+    "trusted_session",
+    "server_owned_account_admission"
+  ],
+  "remote_service_protocol": {
+    "request_schema": "promptplaza-skill-request-v1",
+    "response_schema": "promptplaza-skill-result-v1",
+    "capabilities": "/v1/skill/capabilities",
+    "creative": "/v1/skill/creative",
+    "idempotency_header": "Idempotency-Key",
+    "usage": "/v1/skill/usage",
+    "request_status": "/v1/skill/requests/{request_id}",
+    "search": "/v1/skill/search"
+  },
+  "advanced_creative_features_included_scope": "Private algorithm source is excluded; advanced operation client calls are included.",
+  "quota_policy": "SERVER_ACCOUNT_PG_V1_FREE10CREATIVE50SEARCH_ASIA_SHANGHAI",
+  "edition_policy_status": "SAME_FEATURES_FREE_LAUNCH_MEMBER_RESERVED",
+  "durable_admission_implementation": "private_PG_v1_with_verified_website_session",
+  "legacy_public_search_quota_enforced": false,
+  "quota_policy_status": "FREE_LAUNCH_10_CREATIVE_50_SEARCH",
+  "free_daily": {
+    "creative": 10,
+    "search": 50
+  },
+  "member_status": "RESERVED_NOT_FOR_SALE",
+  "session_method": "interactive-terminal-existing-site-account",
   "distribution": "github-source-and-zip"
 }
