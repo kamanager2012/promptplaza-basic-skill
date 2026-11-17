@@ -4,9 +4,10 @@
 import { constants } from 'node:fs';
 import { open, lstat, unlink, mkdir, rename } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
-import { dirname, isAbsolute, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DEFAULT_API = 'https://www.promptplaza.cn';
@@ -129,7 +130,10 @@ export function explainFailure(error) {
   }else if(code==='SOURCE_PROMPT_TOO_LARGE'){
     message='The source text exceeds the 64 KiB UTF-8 limit.';
     next='Keep the complete original. Ask the user to select a shorter authorized input; do not silently truncate it.';
-  }else if(code.startsWith('CREATIVE_')||code==='REQUEST_ID_REQUIRED'||code.startsWith('SKILL_INPUT_')||
+  }else if(code==='REQUEST_ID_REQUIRED'){
+    message='A stable request ID is required before a metered search or creative task can be submitted.';
+    next='Choose and retain --request-id (16–128 safe characters) before dispatch. Reuse that ID with identical input on recovery and with search cursors; never silently replace it.';
+  }else if(code.startsWith('CREATIVE_')||code.startsWith('SKILL_INPUT_')||
       ['SKILL_BODY_TOO_LARGE','SKILL_REQUEST_TOO_LARGE','SKILL_INVALID_INPUT','SKILL_INVALID_REQUEST_ID',
        'SKILL_UNSUPPORTED_OPERATION','SKILL_UNKNOWN_OPERATION','SKILL_OUTPUT_TOO_LARGE',
        'SKILL_JSON_REQUIRED','SKILL_JSON_INVALID','SKILL_SCHEMA_INVALID','SKILL_OPERATION_INVALID',
@@ -147,7 +151,11 @@ export function explainFailure(error) {
     message='The service is temporarily unavailable.';next='Retry manually later, or continue with your own prompt text.';retryable=true;
   }else if(['API_TIMEOUT','API_REQUEST_FAILED','API_READ_FAILED'].includes(code)){
     message=code==='API_TIMEOUT'?'The request timed out.':'The service could not be reached or read.';
-    next='Check the connection and retry manually, or continue with your own prompt text.';retryable=true;
+    next='For metered tasks retain the original ID and input, check status REQUEST_ID, and recover with the same key. Do not automatically retry or create a new key.';retryable=true;
+  }else if(['API_SKILL_CONTRACT_INVALID','API_SEARCH_CONTRACT_INVALID'].includes(code)){
+    message='The service returned an incomplete or inconsistent result; success is not confirmed.';
+    next=(code==='API_SEARCH_CONTRACT_INVALID'?'Keep your search terms, the original request ID and input.':'Keep the original request ID and input.')+
+      ' Check status REQUEST_ID; do not create a new charged task to hide a protocol failure.';
   }else if(code==='FULL_ORIGINAL_PROMPT_UNAVAILABLE'){
     message='No authorized complete original prompt was returned.';
     next='Open the official case page or supply your own text. Do not export an excerpt as an original.';
@@ -157,9 +165,6 @@ export function explainFailure(error) {
     message='The output path cannot be used.';next='Choose an existing private directory and a new absolute file path outside both the current working directory (including its descendants) and the installed Skill directory.';
   }else if(['UNTRUSTED_SESSION_ORIGIN','UNTRUSTED_API_ORIGIN','HTTPS_REQUIRED','INVALID_API_ORIGIN','INVALID_SESSION'].includes(code)){
     message='The API or session configuration was rejected.';next='Use the official HTTPS API and an existing supported authorized session. Keep credentials out of chat.';
-  }else if(code==='API_SEARCH_CONTRACT_INVALID'){
-    message='The service returned an invalid search response.';
-    next='Keep your search terms and retry manually later; an invalid response does not mean no matching cases exist.';
   }else if(code==='CASE_ID_RESPONSE_MISMATCH'||code.startsWith('API_')){
     message='The service returned an unusable response.';next='Open the official site or try another case; do not invent missing source text or links.';
   }
@@ -325,7 +330,7 @@ function projectUsage(body) {
       typeof body.resets_at!=='string'||body.resets_at.length>40||!Number.isFinite(Date.parse(body.resets_at))||
       !['search','creative'].every(key=>{
         const v=body.buckets?.[key];return v&&['limit','used','reserved','remaining'].every(k=>validCount(v[k]))&&
-          v.remaining===Math.max(0,v.limit-v.used-v.reserved);
+          v.used+v.reserved<=v.limit&&v.remaining===v.limit-v.used-v.reserved;
       }))throw failure('API_SKILL_CONTRACT_INVALID');
   return {ok:true,schema:body.schema,tier:body.tier,policy_version:body.policy_version,quota_day:body.quota_day,
     timezone:body.timezone,resets_at:body.resets_at,buckets:Object.fromEntries(['search','creative'].map(key=>{
@@ -344,9 +349,131 @@ function projectRequestStatus(body, requestId) {
   const {schema,request_id,operation,state,bucket,quota_day,policy_version,created_at,updated_at}=body;
   return {ok:true,schema,request_id,operation,state,bucket,quota_day,policy_version,created_at,updated_at,execution:'NOT_RUN',generation_calls:0};
 }
-function projectCreative(body,operation) {
+const plainRecord=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+const completeText=(value,max=262144)=>typeof value==='string'&&!!value.trim()&&Buffer.byteLength(value,'utf8')<=max;
+const boundedText=(value,max)=>typeof value==='string'&&!!value.trim()&&Array.from(value).length<=max;
+const uniqueIds=(rows,max=64)=>Array.isArray(rows)&&rows.length<=max&&
+  rows.every(row=>plainRecord(row)&&ID.test(row.id||''))&&new Set(rows.map(row=>row.id)).size===rows.length;
+const textHash=value=>createHash('sha256').update(value,'utf8').digest('hex');
+function protocolDigest(value,pythonNumbers=false){
+  // Canonical JSON used by the public wire protocol (Python key ordering).
+  let nodes=0;
+  const compare=(a,b)=>{
+    const x=Array.from(a,c=>c.codePointAt(0)),y=Array.from(b,c=>c.codePointAt(0));
+    for(let i=0;i<Math.min(x.length,y.length);i++)if(x[i]!==y[i])return x[i]-y[i];return x.length-y.length;
+  };
+  const encode=(item,depth=0)=>{
+    if(depth>64||++nodes>20000)throw failure('API_SKILL_CONTRACT_INVALID');
+    if(Array.isArray(item))return '['+item.map(x=>encode(x,depth+1)).join(',')+']';
+    if(plainRecord(item))return '{'+Object.keys(item).sort(compare).map(k=>JSON.stringify(k)+':'+encode(item[k],depth+1)).join(',')+'}';
+    if(typeof item==='number'&&Number.isFinite(item)){
+      // Spec numbers arrive from JSON.stringify(input). For tiny fractional
+      // timestamps Python uses scientific notation with a two-digit exponent.
+      if(pythonNumbers&&!Number.isInteger(item)&&Math.abs(item)<0.0001)
+        return item.toExponential().replace(/e([+-])(\d+)$/,(_,sign,digits)=>'e'+sign+digits.padStart(2,'0'));
+      return JSON.stringify(item);
+    }
+    if(item===null||['string','boolean'].includes(typeof item))return JSON.stringify(item);
+    throw failure('API_SKILL_CONTRACT_INVALID');
+  };
+  return textHash(encode(value));
+}
+function validPackage(value,spec){
+  if(!plainRecord(spec)||spec.schema!=='plaza-creative-pack-1'||!uniqueIds(spec.deliverables)||
+    !uniqueIds(spec.references)||!plainRecord(value)||value.schema!=='plaza-prompt-package-1'||
+    value.state!=='COMPILED_NOT_RUN'||value.pack!==spec.pack||value.mode!==spec.mode||
+    !uniqueIds(value.artifacts)||!value.artifacts.length||value.artifacts.length!==spec.deliverables.length||
+    !uniqueIds(value.references)||value.references.length!==spec.references.length||
+    value.checks?.structure!=='PASS'||value.checks?.visual!=='NOT_RUN')return false;
+  const refs=new Set(spec.references.map(x=>x.id));
+  if(value.references.some(r=>!refs.has(r.id)||r.inspection!=='NOT_INSPECTED'||r.transport!=='NOT_UPLOADED'))return false;
+  if(spec.source){if(value.source?.id!==spec.source.id||value.source?.origin!==spec.source.origin||
+    typeof spec.source.prompt!=='string'||value.source?.prompt_sha256!==textHash(spec.source.prompt))return false;}
+  else if(value.source!==null)return false;
+  const shots=spec.shots||[];
+  if(!uniqueIds(shots))return false;
+  const boundPrompt=p=>completeText(p.prompt)&&completeText(p.model_prompt)&&
+    p.prompt_sha256===textHash(p.prompt)&&p.model_prompt_sha256===textHash(p.model_prompt);
+  return value.artifacts.every(artifact=>{
+    if(!spec.deliverables.some(d=>d.id===artifact.id)||!boundPrompt(artifact)||
+      typeof artifact.aspect!=='string'||!/^\d{1,4}:\d{1,4}$/.test(artifact.aspect)||
+      artifact.model_prompt_status!=='DRAFT_REQUIRES_REAL_MEDIA_REVIEW')return false;
+    const actual=artifact.shots||[];
+    return uniqueIds(actual)&&actual.length===shots.length&&actual.every(shot=>{
+      const expected=shots.find(s=>s.id===shot.id);
+      return expected&&boundPrompt(shot)&&shot.planned_start===expected.start&&shot.planned_end===expected.end&&
+        Number.isFinite(shot.planned_start)&&Number.isFinite(shot.planned_end)&&shot.planned_end>shot.planned_start&&
+        Array.isArray(shot.reference_ids)&&new Set(shot.reference_ids).size===shot.reference_ids.length&&
+        shot.reference_ids.every(id=>refs.has(id))&&Array.isArray(expected.references)&&
+        shot.reference_ids.length===new Set(expected.references).size&&expected.references.every(id=>shot.reference_ids.includes(id));
+    });
+  });
+}
+function validInterviewNext(value,brief){
+  const states=['ASK_ONE','SEARCH','READ_CASE','SELECT_CASE','RETURN_SEARCH_RESULTS',
+    'READY_ORIGINAL_DRAFT_ONLY','READY_TO_AUTHOR','READY_WITH_ASSUMPTIONS','READY_WITH_MISSING_MEDIA',
+    'BLOCKED_ESSENTIAL_INPUT','BLOCKED_INCONSISTENT_BRIEF','BLOCKED_ORIGINAL_REQUIRED',
+    'BLOCKED_QUESTION_BUDGET','BLOCKED_SEARCH_QUERY_MISSING'];
+  if(!plainRecord(value)||!plainRecord(brief)||brief.schema!=='plaza-creative-brief-v1'||
+    !Number.isInteger(brief.revision)||brief.revision<0||brief.revision>100||
+    !['image','video'].includes(brief.track)||!['direct-search','guided-create','deep-remix'].includes(brief.mode)||
+    !plainRecord(brief.task)||!plainRecord(brief.search)||!plainRecord(brief.case)||!Array.isArray(brief.history)||
+    value.schema!=='plaza-interview-next-v1'||!states.includes(value.state)||
+    value.expected_digest!==protocolDigest(brief)||value.revision!==brief.revision||
+    value.track!==brief.track||value.mode!==brief.mode||value.generation_calls!==0||value.media_fetches!==0||
+    !Number.isInteger(value.question_budget)||value.question_budget<0||value.question_budget>3||
+    !Number.isInteger(value.questions_asked)||value.questions_asked<0||value.questions_asked>value.question_budget)return false;
+  if(value.state==='ASK_ONE')return boundedText(value.question_id,80)&&boundedText(value.question,2000)&&boundedText(value.recommended_answer,2000);
+  const ids=values=>Array.isArray(values)&&values.length<=20&&values.every(id=>ID.test(id||''))&&new Set(values).size===values.length;
+  const sameIds=(a,b)=>ids(a)&&ids(b)&&a.length===b.length&&a.every((id,i)=>id===b[i]);
+  if(value.state==='SEARCH')return boundedText(value.query,200)&&value.kind===brief.track&&Number.isInteger(value.limit)&&value.limit>=1&&value.limit<=20&&value.text_only===true;
+  if(value.state==='READ_CASE')return ID.test(value.case_id||'')&&value.case_id===brief.case.id&&value.text_only===true;
+  if(value.state==='SELECT_CASE')return sameIds(value.case_ids,brief.search.case_ids)&&value.case_ids.includes(value.recommended_case_id);
+  if(value.state==='RETURN_SEARCH_RESULTS')return sameIds(value.case_ids,brief.search.case_ids)&&value.prompt_authenticity_verified===false;
+  if(value.state.startsWith('READY_'))return sameIds(value.case_candidates,brief.search.case_ids)&&
+    value.source_prompt_authenticated===false&&value.source_rights_authenticated===false&&value.requires_actual_media_review===true&&
+    (!Object.hasOwn(value,'source_case_id')||value.source_case_id===null||value.source_case_id===brief.case.id);
+  if(value.state==='BLOCKED_ORIGINAL_REQUIRED')return value.case_id===brief.case.id;
+  if(['BLOCKED_QUESTION_BUDGET','BLOCKED_INCONSISTENT_BRIEF'].includes(value.state))return boundedText(value.missing,80);
+  return ['BLOCKED_ESSENTIAL_INPUT','BLOCKED_SEARCH_QUERY_MISSING'].includes(value.state);
+}
+function validCreativeResult(operation,result,input){
+  if(!plainRecord(result))return false;
+  if(operation==='compile')return validPackage(result,input);
+  if(operation==='revise')return plainRecord(result.spec)&&result.spec.schema==='plaza-creative-pack-1'&&
+    validPackage(result.package,result.spec)&&Array.isArray(result.changed_shots)&&result.changed_shots.length===1&&
+    result.changed_shots[0]===input.change?.shot_id&&result.spec.shots?.some(s=>s.id===result.changed_shots[0])&&
+    input.spec?.deliverables?.length===result.spec.deliverables.length&&
+    input.spec.deliverables.every(d=>result.spec.deliverables.some(x=>x.id===d.id));
+  if(operation==='remix'||operation==='remix-revise')return result.plan?.schema==='plaza-remix-plan-1'&&
+    result.plan.state===(operation==='remix-revise'?'REVISED_NOT_RUN':'DRAFT_NOT_RUN')&&plainRecord(result.plan.spec)&&
+    result.plan.spec_sha256===protocolDigest(result.plan.spec,true)&&validPackage(result.package,result.plan.spec);
+  if(operation==='interview-next')return validInterviewNext(result,input.brief);
+  if(operation==='interview-new'||operation==='interview-answer')return validInterviewNext(result.next,result.brief);
+  if(operation==='case-ideas'){
+    if(result.schema!=='plaza-authored-ideas-v1'||result.case_id!==input.case_id||
+      result.execution!=='NOT_RUN'||result.original_prompt!==false||result.authorship!=='PLAZA_AUTHORED_DERIVATIVE'||
+      !uniqueIds(result.ideas,16)||result.available!==(result.ideas.length>0)||
+      !result.ideas.every(x=>boundedText(x.axis,80)&&boundedText(x.direction,2000)&&completeText(x.prompt,65536)&&x.prompt_sha256===textHash(x.prompt)))return false;
+    const ideas=result.ideas.map(({id,axis,direction,prompt})=>({id,axis,direction,prompt}));
+    return result.revision===null?ideas.length===0:result.revision===protocolDigest(ideas);
+  }
+  if(operation==='recipe-catalog')return result.schema==='plaza-recipe-catalog-v1'&&result.execution==='NOT_RUN'&&
+    uniqueIds(result.recipes,32)&&result.recipes.every(r=>r.kind==='image'&&boundedText(r.title,300)&&plainRecord(r.slots)&&
+      Object.keys(r.slots).length<=16&&Object.entries(r.slots).every(([key,s])=>/^[a-z][a-z0-9_]{0,63}$/.test(key)&&
+        !['constructor','prototype','__proto__'].includes(key)&&s?.type==='string'&&boundedText(s.label,300)&&
+        boundedText(s.example,2048)&&typeof s.required==='boolean')&&uniqueIds(r.routes,16)&&
+      r.routes.every(x=>boundedText(x.distance,80)&&boundedText(x.direction,2000)));
+  if(operation==='recipe-compile')return result.schema==='plaza-recipe-draft-v1'&&result.state==='COMPILED_NOT_RUN'&&
+    result.execution==='NOT_RUN'&&result.recipe_id===input.recipe_id&&result.route_id===(input.route_id??null)&&
+    completeText(result.prompt)&&result.prompt_sha256===textHash(result.prompt);
+  return false;
+}
+function projectCreative(body,operation,input) {
+  let valid=false;
+  try{valid=validCreativeResult(operation,body.result,input);}catch{ /* malformed nested protocol data */ }
   if(body.ok!==true||body.schema!=='promptplaza-skill-result-v1'||body.operation!==operation||
-      !body.result||typeof body.result!=='object'||Array.isArray(body.result)||body.execution!=='NOT_RUN')
+      !valid||body.execution!=='NOT_RUN')
     throw failure('API_SKILL_CONTRACT_INVALID');
   return {ok:true,schema:body.schema,operation,result:body.result,execution:'NOT_RUN',
     ...(['case-ideas','recipe-catalog'].includes(operation)||operation.startsWith('interview-')?{}:
@@ -463,7 +590,7 @@ async function writeNew(path,prompt){
 }
 export async function execute(argv,{env=process.env,fetchImpl=fetch,cwd=process.cwd(),input,credentials,sessionStore}={}){
   const {action,pos,opt}=options(argv);
-  if(action==='help')return {commands:['search [TOPIC] [--author HANDLE] [--duration TAG] [--kind image|video] [--limit 1..20]',
+  if(action==='help')return {commands:['search [TOPIC] [filters] --request-id STABLE_ID; search --cursor RETURNED_CURSOR --request-id ORIGINAL_SEARCH_ID',
     'get CASE_ID','download CASE_ID --output /absolute/new/file.txt','capabilities','usage','status REQUEST_ID',
     'creative OPERATION --input - --request-id 16..128-safe-characters','login','logout'],
     creative_operations:[...CREATIVE_OPERATIONS],source:'authorized Plaza API; private creative service required',
@@ -507,15 +634,17 @@ export async function execute(argv,{env=process.env,fetchImpl=fetch,cwd=process.
     const operation=pos[0],payload=await creativeInput(input);
     const body=JSON.stringify({schema:'promptplaza-skill-request-v1',operation,input:payload});
     if(Buffer.byteLength(body)>MAX_CREATIVE_BYTES)throw failure('CREATIVE_INPUT_TOO_LARGE');
-    return projectCreative(await requestJson('/v1/skill/creative',fetchImpl,env,
-      {method:'POST',body,requestId:opt['request-id'],service:true}),operation);
+    try{return projectCreative(await requestJson('/v1/skill/creative',fetchImpl,env,
+      {method:'POST',body,requestId:opt['request-id'],service:true}),operation,payload);}
+    catch(error){error.request_id=opt['request-id'];throw error;}
   }
   if(action==='search'){
     apiContext(env,true);
     if(opt.cursor!==undefined){
-      if(pos.length||Object.keys(opt).some(key=>key!=='cursor')||!opt.cursor||opt.cursor.length>4096)throw failure('SEARCH_FILTER_INVALID');
+      if(pos.length||Object.keys(opt).some(key=>!['cursor','request-id'].includes(key))||!opt.cursor||opt.cursor.length>4096)throw failure('SEARCH_FILTER_INVALID');
+      if(!REQUEST_ID.test(opt['request-id']||''))throw failure('REQUEST_ID_REQUIRED');
       const result=await requestJson('/v1/skill/search',fetchImpl,env,{method:'POST',body:JSON.stringify({cursor:opt.cursor}),service:true});
-      return projectMeteredSearch(result,20);
+      return projectMeteredSearch(result,20,opt['request-id']);
     }
     const query=pos.join(' ').trim();
     const author=opt.author===undefined?undefined:opt.author.trim().replace(/^@/,'').trim();
@@ -530,11 +659,11 @@ export async function execute(argv,{env=process.env,fetchImpl=fetch,cwd=process.
       if(!value.trim()||value.length>80||/[\u0000-\u001f\u007f]/.test(value))throw failure('SEARCH_FILTER_INVALID');
       q.set(key,value);
     }
-    const requestId=opt['request-id']||randomUUID();
-    if(!REQUEST_ID.test(requestId))throw failure('REQUEST_ID_REQUIRED');
+    const requestId=opt['request-id'];
+    if(!REQUEST_ID.test(requestId||''))throw failure('REQUEST_ID_REQUIRED');
     const body=Object.fromEntries(q);delete body.offset;body.limit=limit;
     try{return projectMeteredSearch(await requestJson('/v1/skill/search',fetchImpl,env,
-      {method:'POST',body:JSON.stringify(body),requestId,service:true}),limit);}
+      {method:'POST',body:JSON.stringify(body),requestId,service:true}),limit,requestId);}
     catch(error){error.request_id=requestId;throw error;}
   }
   if(pos.length!==1||!ID.test(pos[0]))throw failure('CASE_ID_INVALID');
@@ -549,24 +678,58 @@ export async function execute(argv,{env=process.env,fetchImpl=fetch,cwd=process.
     prompt_sha256:createHash('sha256').update(detail.prompt,'utf8').digest('hex'),
     rights_license:detail.rights_license,republication_authorized_by_skill:false,generation_calls:0};
 }
-function projectMeteredSearch(body,limit){
+function projectMeteredSearch(body,limit,requestId){
   if(body.schema!=='promptplaza-skill-search-v1'||!REQUEST_ID.test(body.request_id||'')||
     !(body.next_cursor===null||typeof body.next_cursor==='string'&&body.next_cursor.length<=4096)||
-    !Number.isInteger(body.page)||body.page<0||body.page>=5)throw failure('API_SEARCH_CONTRACT_INVALID');
+    body.request_id!==requestId||!Number.isInteger(body.page)||body.page<0||body.page>=5)throw failure('API_SEARCH_CONTRACT_INVALID');
   return {...projectSearch(body,limit),request_id:body.request_id,page:body.page,next_cursor:body.next_cursor,
     cursor_expires_at:text(body.cursor_expires_at,40),page_limit:5};
+}
+
+// Windows chmod does not implement owner/group privacy. Protect the complete
+// session with DPAPI CurrentUser before any bytes reach disk; never fall back
+// to plaintext if the native protection service cannot be used.
+async function windowsSessionData(bytes, decrypt=false){
+  const systemRoot=process.env.SystemRoot;
+  if(!systemRoot||!isAbsolute(systemRoot))throw failure('SESSION_STORE_UNSAFE');
+  const script=`$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Security;
+    $v=[Console]::In.ReadToEnd() | ConvertFrom-Json;
+    $b=[Convert]::FromBase64String($v.data);
+    if($b.Length -gt 8192){throw 'SIZE'};
+    $scope=[Security.Cryptography.DataProtectionScope]::CurrentUser;
+    $entropy=[Text.Encoding]::UTF8.GetBytes('PromptPlaza local session v1');
+    if($v.decrypt){$out=[Security.Cryptography.ProtectedData]::Unprotect($b,$entropy,$scope)}
+    else{$out=[Security.Cryptography.ProtectedData]::Protect($b,$entropy,$scope)};
+    [Console]::Out.Write([Convert]::ToBase64String($out));`;
+  return new Promise((accept,reject)=>{
+    const child=spawn(join(systemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'),
+      ['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],
+      {cwd:systemRoot,env:{SystemRoot:systemRoot,WINDIR:systemRoot},windowsHide:true,stdio:['pipe','pipe','ignore']});
+    let output='',settled=false;
+    const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);if(error){child.kill();reject(error);}else accept(value);};
+    const timer=setTimeout(()=>{child.kill();finish(failure('SESSION_STORE_UNSAFE'));},5000);
+    child.on('error',()=>finish(failure('SESSION_STORE_UNSAFE')));
+    child.stdin.on('error',()=>finish(failure('SESSION_STORE_UNSAFE')));
+    child.stdout.on('data',chunk=>{output+=chunk.toString('ascii');if(output.length>16384){child.kill();finish(failure('SESSION_STORE_UNSAFE'));}});
+    child.on('close',code=>{
+      if(code!==0||!output||! /^[A-Za-z0-9+/]+={0,2}$/.test(output)||output.length%4!==0)return finish(failure('SESSION_STORE_UNSAFE'));
+      finish(null,Buffer.from(output,'base64'));
+    });
+    child.stdin.end(JSON.stringify({decrypt,data:bytes.toString('base64')}));
+  });
 }
 
 // Session storage is separate from the open Skill and every project checkout.
 export function createSessionStore(directory){
   const dir=resolve(directory),file=resolve(dir,'session.json');
+  const windows=process.platform==='win32';
   async function guard(create=false){
     if(create)await mkdir(dir,{recursive:true,mode:0o700});
     let path=dir;
     while(true){
       const st=await lstat(path);
       if(st.isSymbolicLink()||!st.isDirectory())throw failure('SESSION_STORE_UNSAFE');
-      if(path===dir&&((st.mode&0o077)!==0||typeof process.getuid==='function'&&st.uid!==process.getuid()))throw failure('SESSION_STORE_UNSAFE');
+      if(!windows&&path===dir&&((st.mode&0o077)!==0||typeof process.getuid==='function'&&st.uid!==process.getuid()))throw failure('SESSION_STORE_UNSAFE');
       const next=dirname(path);if(next===path)break;path=next;
     }
   }
@@ -574,10 +737,20 @@ export function createSessionStore(directory){
     async read(){
       let handle;
       try{
-        await guard();handle=await open(file,constants.O_RDONLY|(constants.O_NOFOLLOW||0));
+        await guard();
+        const entry=await lstat(file);
+        if(entry.isSymbolicLink()||!entry.isFile())throw failure('SESSION_STORE_UNSAFE');
+        handle=await open(file,constants.O_RDONLY|(constants.O_NOFOLLOW||0));
         const st=await handle.stat();
-        if(!st.isFile()||(st.mode&0o077)!==0||st.size>4096||typeof process.getuid==='function'&&st.uid!==process.getuid())throw failure('SESSION_STORE_UNSAFE');
-        const value=JSON.parse(await handle.readFile('utf8'));
+        if(!st.isFile()||(!windows&&(st.mode&0o077)!==0)||st.size>(windows?16384:4096)||typeof process.getuid==='function'&&st.uid!==process.getuid())throw failure('SESSION_STORE_UNSAFE');
+        let value=JSON.parse(await handle.readFile('utf8'));
+        if(windows){
+          if(value.schema!=='promptplaza-session-dpapi-v1'||typeof value.protected!=='string'||
+            value.protected.length>12000||! /^[A-Za-z0-9+/]+={0,2}$/.test(value.protected)||value.protected.length%4!==0)throw failure('INVALID_SESSION');
+          const clear=await windowsSessionData(Buffer.from(value.protected,'base64'),true);
+          if(clear.length>4096)throw failure('INVALID_SESSION');
+          value=JSON.parse(clear.toString('utf8'));
+        }
         if(value.schema!=='promptplaza-session-v1'||value.origin!==DEFAULT_API||
           !/^[A-Za-z0-9_-]{8,256}$/.test(value.token||'')||!Number.isSafeInteger(value.created_at)||
           value.created_at>Date.now()||Date.now()-value.created_at>8*3600000)return null;
@@ -587,9 +760,13 @@ export function createSessionStore(directory){
     },
     async write(value){
       await guard(true);
+      let encoded=JSON.stringify(value);
+      if(Buffer.byteLength(encoded)>4096)throw failure('INVALID_SESSION');
+      if(windows)encoded=JSON.stringify({schema:'promptplaza-session-dpapi-v1',
+        protected:(await windowsSessionData(Buffer.from(encoded,'utf8'))).toString('base64')});
       const temporary=resolve(dir,'session-'+randomUUID()+'.tmp');let handle;
       try{handle=await open(temporary,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|(constants.O_NOFOLLOW||0),0o600);
-        await handle.writeFile(JSON.stringify(value));await handle.sync();await handle.close();handle=null;await rename(temporary,file);}
+        await handle.writeFile(encoded);await handle.sync();await handle.close();handle=null;await rename(temporary,file);}
       finally{await handle?.close();await unlink(temporary).catch(()=>{});}
     },
     async clear(){try{await guard();await unlink(file);}catch(error){if(error.code!=='ENOENT')throw error;}},

@@ -16,10 +16,11 @@ import signal
 import subprocess
 import tempfile
 from urllib.parse import unquote, urlsplit
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 INSTALL = frozenset({
     'LICENSE', 'NOTICE', 'README.md', 'SKILL.md', 'THIRD-PARTY.md',
-    'PACKAGE.json', 'package.json', 'scripts/plaza-basic.mjs', 'tests/basic.test.mjs',
+    'SKILL-MANIFEST.json', 'package.json', 'scripts/plaza-basic.mjs', 'tests/basic.test.mjs',
 })
 EXTRAS = frozenset({
     '.gitattributes', '.gitignore', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md',
@@ -57,6 +58,7 @@ def read_payload(root: Path) -> dict[str, bytes]:
 
 def check(payload: dict[str, bytes]) -> dict:
     require(set(payload) == REPOSITORY, 'REPOSITORY_FILE_SET')
+    require(len({name.casefold() for name in payload}) == len(payload), 'CASE_INSENSITIVE_COLLISION')
     require(sum(map(len, payload.values())) <= 256 * 1024, 'REPOSITORY_BYTE_BUDGET')
     for name, raw in payload.items():
         text = raw.decode('utf-8')
@@ -75,7 +77,7 @@ def check(payload: dict[str, bytes]) -> dict:
             else:
                 target = os.path.normpath(str(PurePosixPath(name).parent / unquote(urlsplit(link).path)))
             require(target in payload, 'BROKEN_LOCAL_LINK: ' + name + ' -> ' + target)
-    meta = json.loads(payload['PACKAGE.json'])
+    meta = json.loads(payload['SKILL-MANIFEST.json'])
     npm = json.loads(payload['package.json'])
     require(meta['version'] == npm['version'] and npm['engines']['node'] == '>=22', 'VERSION_CONTRACT')
     require(meta['status'] == 'PUBLIC_BETA' and npm['private'] is True
@@ -156,15 +158,76 @@ def smoke(root: Path, payload: dict[str, bytes]) -> dict:
                 'help_native_exit': 0, 'business_requests': 0, 'model_media_calls': 0}
 
 
+def package(root: Path, payload: dict[str, bytes], destination: Path) -> dict:
+    """Test the actual deterministic release ZIP; never overwrite an artifact."""
+    memory_guard()
+    runtime = root / '.runtime'
+    output = destination.absolute()
+    require(runtime in output.parents and output.resolve() == output
+            and not output.exists() and not output.is_symlink(),
+            'PACKAGE_OUTPUT_MUST_BE_NEW_UNDER_RUNTIME')
+    for parent in output.parents:
+        require(not parent.is_symlink(), 'PACKAGE_PARENT_SYMLINK')
+        if parent == root:
+            break
+    version = json.loads(payload['package.json'])['version']
+    require(bool(re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?', version)),
+            'PACKAGE_VERSION')
+    output.mkdir(parents=True, mode=0o700)
+    archive = output / ('promptplaza-basic-' + version + '.zip')
+    with ZipFile(archive, 'x', ZIP_DEFLATED) as zipped:
+        for name in sorted(INSTALL):
+            member = ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+            member.compress_type = ZIP_DEFLATED
+            member.external_attr = 0o100644 << 16
+            zipped.writestr(member, payload[name])
+    with ZipFile(archive) as zipped:
+        require(len(zipped.namelist()) == len(INSTALL) and set(zipped.namelist()) == INSTALL
+                and zipped.testzip() is None, 'ARCHIVE_FILE_SET')
+        installed = {name: zipped.read(name) for name in INSTALL}
+    require(all(installed[name] == payload[name] for name in INSTALL), 'ARCHIVE_SOURCE_BYTES')
+    validation = smoke(root, installed)
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    commit = None
+    if (root / '.git').exists():
+        commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, check=True,
+                                capture_output=True, text=True, timeout=3).stdout.strip()
+        require(bool(re.fullmatch('[0-9a-f]{40}', commit)), 'SOURCE_COMMIT')
+        tracked = subprocess.run(['git', 'ls-tree', '-r', '--name-only', commit], cwd=root,
+                                 check=True, capture_output=True, text=True, timeout=3).stdout.splitlines()
+        require(set(tracked) == REPOSITORY, 'SOURCE_COMMIT_FILE_SET')
+        for name in sorted(REPOSITORY):
+            committed = subprocess.run(['git', 'show', commit + ':' + name], cwd=root,
+                                       check=True, capture_output=True, timeout=3).stdout
+            require(committed == payload[name], 'UNCOMMITTED_SOURCE: ' + name)
+    if os.environ.get('GITHUB_ACTIONS') == 'true':
+        require(commit == os.environ.get('GITHUB_SHA'), 'CI_CHECKOUT_IDENTITY')
+    receipt = {'schema': 'promptplaza-basic-build-v1', 'version': version,
+               'source_commit': commit, 'repository_snapshot_sha256': check(payload)['snapshot_sha256'],
+               'archive': archive.name, 'archive_bytes': archive.stat().st_size,
+               'archive_sha256': digest,
+               'files': {name: {'bytes': len(installed[name]),
+                                'sha256': hashlib.sha256(installed[name]).hexdigest()}
+                         for name in sorted(INSTALL)},
+               'validation': validation, 'cryptographic_attestation': False}
+    (output / 'SHA256SUMS').write_text(digest + '  ' + archive.name + '\n', encoding='utf-8')
+    (output / 'build.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
+    return {**validation, 'archive': archive.name, 'archive_sha256': digest,
+            'artifact_files': [archive.name, 'SHA256SUMS', 'build.json']}
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--smoke', action='store_true')
+    parser.add_argument('--package', type=Path, help='New output directory under .runtime; implies --smoke')
     args = parser.parse_args()
     try:
         root = Path(__file__).resolve().parents[1]
         payload = read_payload(root)
         result = check(payload)
-        if args.smoke:
+        if args.package:
+            result.update(package(root, payload, args.package))
+        elif args.smoke:
             result.update(smoke(root, payload))
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     except Exception as error:

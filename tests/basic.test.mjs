@@ -29,16 +29,43 @@ test('local logout clears stale credentials even when server revocation cannot b
     sessionStore:{clear:async()=>cleared++}});
   assert.equal(cleared,1);assert.equal(out.server_session_revoked,false);assert.equal(out.local_session_removed,true);
 });
-test('session store uses private permissions, rejects symlinks and forgets expired tokens',async()=>{
+test('session store protects local credentials, rejects symlinks and forgets expired tokens',async()=>{
   const root=await mkdtemp(join(tmpdir(),'plaza-session-'));
   try{
     const path=join(root,'private'),store=createSessionStore(path);
     const value={schema:'promptplaza-session-v1',origin:'https://www.promptplaza.cn',token:'synthetic-session',created_at:Date.now()};
     await store.write(value);assert.equal(await store.read(),'synthetic-session');
-    assert.equal((await stat(join(path,'session.json'))).mode&0o777,0o600);
+    if(process.platform==='win32'){
+      const raw=await readFile(join(path,'session.json'),'utf8');
+      assert.equal(JSON.parse(raw).schema,'promptplaza-session-dpapi-v1');
+      assert.ok(!raw.includes(value.token));
+    }else assert.equal((await stat(join(path,'session.json'))).mode&0o777,0o600);
     await store.write({...value,created_at:Date.now()-9*3600000});assert.equal(await store.read(),null);
     await store.clear();assert.equal(await store.read(),null);
-    await symlink(path,join(root,'linked'));await assert.rejects(createSessionStore(join(root,'linked')).write(value),{code:'SESSION_STORE_UNSAFE'});
+    await symlink(path,join(root,'linked'),process.platform==='win32'?'junction':'dir');
+    await assert.rejects(createSessionStore(join(root,'linked')).write(value),{code:'SESSION_STORE_UNSAFE'});
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+test('Windows rejects plaintext, tampering and protection failure without replacing a valid session',
+  {skip:process.platform!=='win32'},async()=>{
+  const root=await mkdtemp(join(tmpdir(),'plaza-session-dpapi-'));
+  try{
+    const path=join(root,'private'),file=join(path,'session.json'),store=createSessionStore(path);
+    const value={schema:'promptplaza-session-v1',origin:'https://www.promptplaza.cn',token:'synthetic-dpapi-session',created_at:Date.now()};
+    await store.write(value);const encrypted=await readFile(file,'utf8');
+    await writeFile(file,JSON.stringify(value));
+    await assert.rejects(store.read(),{code:'INVALID_SESSION'});
+    const blob=JSON.parse(encrypted),data=Buffer.from(blob.protected,'base64');
+    data[data.length-1]^=0xff;
+    await writeFile(file,JSON.stringify({...blob,protected:data.toString('base64')}));
+    await assert.rejects(store.read(),{code:'SESSION_STORE_UNSAFE'});
+    await writeFile(file,encrypted);
+    const original=process.env.SystemRoot;
+    try{delete process.env.SystemRoot;await assert.rejects(store.write(value),{code:'SESSION_STORE_UNSAFE'});}
+    finally{if(original===undefined)delete process.env.SystemRoot;else process.env.SystemRoot=original;}
+    assert.equal(await readFile(file,'utf8'),encrypted);
+    assert.equal(await store.read(),value.token);
+    await store.clear();
   }finally{await rm(root,{recursive:true,force:true});}
 });
 test('new search requires account, zero offset and a stable key; continuation keeps its opaque cursor',async()=>{
@@ -68,9 +95,20 @@ test('private usage and receipt reads require existing session before fetching',
 });
 test('usage rejects inconsistent counts and wrong contracts', async()=>{
   for(const body of [{...usageBody(),timezone:'UTC'},{...usageBody(),tier:'administrator'},
+    {...usageBody(),buckets:{...usageBody().buckets,creative:{limit:2,used:3,reserved:0,remaining:0}}},
+    {...usageBody(),buckets:{...usageBody().buckets,creative:{limit:2,used:2,reserved:1,remaining:0}}},
     {...usageBody(),buckets:{...usageBody().buckets,creative:{limit:2,used:0,reserved:1,remaining:2}}}]){
     await assert.rejects(execute(['usage'],{env:{PROMPTPLAZA_TOKEN:'synthetic-session'},fetchImpl:fake(body).call}),error=>error.code==='API_SKILL_CONTRACT_INVALID');
   }
+});
+test('metered searches need a stable ID before dispatch and bind the returned receipt',async()=>{
+  const env={PROMPTPLAZA_TOKEN:'synthetic-session'};let calls=0;
+  for(const args of [['search','cup'],['search','--cursor','opaque.signed']])
+    await assert.rejects(execute(args,{env,fetchImpl:async()=>{calls++;}}),{code:'REQUEST_ID_REQUIRED'});
+  assert.equal(calls,0);
+  const body={schema:'promptplaza-skill-search-v1',request_id:'wrong-search-00000001',items:[],total:0,page:0,next_cursor:null};
+  for(const args of [['search','cup','--request-id','expected-search-00001'],['search','--cursor','opaque.signed','--request-id','expected-search-00001']])
+    await assert.rejects(execute(args,{env,fetchImpl:fake(body).call}),{code:'API_SEARCH_CONTRACT_INVALID'});
 });
 test('status returns only the requested receipt metadata and never its prompt result', async()=>{
   const body={ok:true,schema:'promptplaza-skill-request-status-v1',request_id:'request-0000000001',
@@ -117,7 +155,8 @@ function caseBody(data = {}) {
   return {ok:true,schema:'promptplaza-public-source-v1',source:'authorized-public-copy-v1',case:item};
 }
 const run = (args, mock, env = {}, opts = {}) =>
-  execute(args, { fetchImpl: mock.call, env:args[0]==='search'?{PROMPTPLAZA_TOKEN:'synthetic-session',...env}:env, ...opts });
+  execute(args[0]==='search'&&!args.includes('--request-id')?[...args,'--request-id','search-request-00000001']:args,
+    { fetchImpl: mock.call, env:args[0]==='search'?{PROMPTPLAZA_TOKEN:'synthetic-session',...env}:env, ...opts });
 
 test('explicit official HTTPS origin and localhost are accepted', () => {
   assert.equal(originOf('https://www.promptplaza.cn').url, 'https://www.promptplaza.cn');
@@ -455,7 +494,7 @@ test('transport timeouts and failures each stop after one request', async () => 
   for(const [error,code] of [[new DOMException('fixture','TimeoutError'),'API_TIMEOUT'],
     [new Error('PRIVATE_CONNECTION_DETAIL'),'API_REQUEST_FAILED']]){
     let requests=0;
-    await assert.rejects(execute(['search','cup'],{env:{PROMPTPLAZA_TOKEN:'synthetic-session'},fetchImpl:async()=>{requests++;throw error;}}),{code});
+    await assert.rejects(execute(['search','cup','--request-id','transport-search-00001'],{env:{PROMPTPLAZA_TOKEN:'synthetic-session'},fetchImpl:async()=>{requests++;throw error;}}),{code});
     assert.equal(requests,1);
   }
 });
@@ -465,7 +504,7 @@ test('oversized response cancels its stream before collecting the full body', as
   const body=new ReadableStream({pull(controller){
     if(pulls++<8)controller.enqueue(chunk);else controller.close();
   },cancel(){cancelled=true;}});
-  await assert.rejects(execute(['search','cup'],{env:{PROMPTPLAZA_TOKEN:'synthetic-session'},fetchImpl:async()=>new Response(body)}),
+  await assert.rejects(execute(['search','cup','--request-id','oversize-search-000001'],{env:{PROMPTPLAZA_TOKEN:'synthetic-session'},fetchImpl:async()=>new Response(body)}),
     {code:'API_RESPONSE_TOO_LARGE'});
   assert.equal(cancelled,true);assert.ok(pulls<9);
 });
@@ -474,14 +513,14 @@ test('malformed or explicitly failed API payloads cannot produce results', async
     [{ok:false,items:[caseBody().case]},'API_REPORTED_FAILURE']]){
     await assert.rejects(run(['search','cup'],fake(body)),{code});
   }
-  await assert.rejects(execute(['search','cup'],{env:{PROMPTPLAZA_TOKEN:'synthetic-session'},
+  await assert.rejects(execute(['search','cup','--request-id','malformed-search-00001'],{env:{PROMPTPLAZA_TOKEN:'synthetic-session'},
     fetchImpl:async()=>new Response('{incomplete')}),{code:'API_JSON_INVALID'});
 });
 test('case ID mismatch cannot bind unrelated source content', async () => {
   const m = fake(caseBody({ id: 'some-other-case' }));
   await assert.rejects(run(['get', 'case-1'], m), { code: 'CASE_ID_RESPONSE_MISMATCH' });
 });
-test('download saves exact UTF-8 text exclusively with 0600 permissions', async () => {
+test('download saves exact UTF-8 text exclusively; POSIX files have 0600 permissions', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'plaza-basic-'));
   try {
     const path = join(dir, 'original.txt');
@@ -490,7 +529,7 @@ test('download saves exact UTF-8 text exclusively with 0600 permissions', async 
     assert.equal(result.generation_calls, 0);
     assert.equal(result.rights_license, 'NOASSERTION');
     assert.equal(await readFile(path, 'utf8'), 'Complete, original prompt.\nSecond line.');
-    assert.equal((await stat(path)).mode & 0o777, 0o600);
+    if(process.platform!=='win32')assert.equal((await stat(path)).mode & 0o777, 0o600);
     const beforeRetry=m.requests.length;
     await assert.rejects(run(['download', 'case-1', '--output', path], m, {}, {cwd: '/another/skill/repo'}),
       { code: 'OUTPUT_EXISTS' });
@@ -528,7 +567,7 @@ test('using an absolute installed CLI cannot write original text into the Skill 
 });
 
 test('Agent-only rewrite instructions never become a hidden CLI command', async () => {
-  const pkg = JSON.parse(await readFile(new URL('../PACKAGE.json', import.meta.url), 'utf8'));
+  const pkg = JSON.parse(await readFile(new URL('../SKILL-MANIFEST.json', import.meta.url), 'utf8'));
   assert.deepEqual(pkg.allowed_commands, ['search', 'get', 'download', 'capabilities', 'creative', 'usage', 'status', 'login', 'logout']);
   assert.deepEqual(pkg.agent_only_capabilities, ['single_case_simple_rewrite', 'guided_progressive_questions']);
   assert.equal(pkg.model_execution_by_package, false);
@@ -545,7 +584,7 @@ test('source projection stays literal even when host may author a separate draft
 });
 
 test('host GrillMe guidance stays available without shipping the private interview engine', async () => {
-  const pkg = JSON.parse(await readFile(new URL('../PACKAGE.json', import.meta.url), 'utf8'));
+  const pkg = JSON.parse(await readFile(new URL('../SKILL-MANIFEST.json', import.meta.url), 'utf8'));
   assert.equal(pkg.private_interview_engine_included, false);
   assert.deepEqual(pkg.allowed_commands, ['search', 'get', 'download', 'capabilities', 'creative', 'usage', 'status', 'login', 'logout']);
   const mock = fake(caseBody());
@@ -560,7 +599,38 @@ const creativeArgs=(operation='compile',key='task-fixture-00000001')=>[
   'creative',operation,'--input','-','--request-id',key
 ];
 const creativeEnv={PROMPTPLAZA_TOKEN:'synthetic-authorized-session'};
-function creativeBody(operation='compile',result={state:'COMPILED_NOT_RUN',artifacts:[]}){
+function creativeFixture(operation='compile'){
+  const hash=v=>createHash('sha256').update(v).digest('hex');
+  const canonical=v=>Array.isArray(v)?'['+v.map(canonical).join(',')+']':v&&typeof v==='object'?
+    '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}':JSON.stringify(v);
+  const spec={schema:'plaza-creative-pack-1',pack:'product-series',mode:'free',references:[],
+    deliverables:[{id:'draft-1'}]};
+  const prompt='Complete synthetic blue cup prompt.';
+  const artifact={id:'draft-1',aspect:'1:1',prompt,model_prompt:prompt,prompt_sha256:hash(prompt),
+    model_prompt_sha256:hash(prompt),model_prompt_status:'DRAFT_REQUIRES_REAL_MEDIA_REVIEW'};
+  const pack={schema:'plaza-prompt-package-1',state:'COMPILED_NOT_RUN',pack:spec.pack,mode:spec.mode,
+    references:[],source:null,artifacts:[artifact],checks:{structure:'PASS',visual:'NOT_RUN'}};
+  if(operation==='compile')return {input:spec,result:pack};
+  if(operation==='revise'){
+    spec.shots=[{id:'shot-1',start:0,end:1,references:[]}];
+    artifact.shots=[{...artifact,id:'shot-1',planned_start:0,planned_end:1,reference_ids:[]}];
+    return {input:{spec,change:{shot_id:'shot-1'}},result:{spec,package:pack,changed_shots:['shot-1']}};
+  }
+  if(operation.startsWith('remix'))return {input:{spec},result:{plan:{schema:'plaza-remix-plan-1',state:operation==='remix-revise'?'REVISED_NOT_RUN':'DRAFT_NOT_RUN',
+    spec,spec_sha256:hash(canonical(spec))},package:pack}};
+  const brief={schema:'plaza-creative-brief-v1',revision:0,track:'video',mode:'guided-create',task:{},search:{},case:{},history:[]};
+  const next={schema:'plaza-interview-next-v1',state:'ASK_ONE',revision:0,track:'video',mode:'guided-create',
+    expected_digest:hash(canonical(brief)),questions_asked:0,question_budget:3,generation_calls:0,media_fetches:0,
+    question_id:'motion',question:'What should move?',recommended_answer:'Keep the cup fixed.'};
+  if(operation==='interview-next')return {input:{brief},result:next};
+  if(operation.startsWith('interview-'))return {input:{},result:{brief,next}};
+  if(operation==='case-ideas')return {input:{case_id:'case-1'},result:{schema:'plaza-authored-ideas-v1',case_id:'case-1',
+    available:false,revision:null,authorship:'PLAZA_AUTHORED_DERIVATIVE',original_prompt:false,ideas:[],execution:'NOT_RUN'}};
+  if(operation==='recipe-catalog')return {input:{},result:{schema:'plaza-recipe-catalog-v1',recipes:[],execution:'NOT_RUN'}};
+  return {input:{recipe_id:'recipe-1'},result:{schema:'plaza-recipe-draft-v1',recipe_id:'recipe-1',route_id:null,
+    prompt,prompt_sha256:hash(prompt),state:'COMPILED_NOT_RUN',execution:'NOT_RUN'}};
+}
+function creativeBody(operation='compile',result=creativeFixture(operation).result){
   return {ok:true,schema:'promptplaza-skill-result-v1',operation,result,execution:'NOT_RUN'};
 }
 function capabilityBody(extra={}){
@@ -570,12 +640,12 @@ function capabilityBody(extra={}){
 }
 test('stored authored ideas and recipe discovery are not mislabeled as newly authored drafts',async()=>{
   for(const op of ['case-ideas','recipe-catalog']){
-    const m=fake(creativeBody(op,{schema:op==='case-ideas'?'plaza-authored-ideas-v1':'plaza-recipe-catalog-v1'}));
-    const out=await run(creativeArgs(op),m,creativeEnv,{input:'{}'});
+    const fixture=creativeFixture(op),m=fake(creativeBody(op,fixture.result));
+    const out=await run(creativeArgs(op),m,creativeEnv,{input:JSON.stringify(fixture.input)});
     assert.equal(out.operation,op);assert.equal(out.draft_status,undefined);assert.equal(m.requests.length,1);
   }
-  const m=fake(creativeBody('recipe-compile',{prompt:'Complete synthetic recipe draft.'}));
-  const out=await run(creativeArgs('recipe-compile'),m,creativeEnv,{input:'{}'});
+  const fixture=creativeFixture('recipe-compile'),m=fake(creativeBody('recipe-compile',fixture.result));
+  const out=await run(creativeArgs('recipe-compile'),m,creativeEnv,{input:JSON.stringify(fixture.input)});
   assert.equal(out.draft_status,'DRAFT_NOT_RUN');assert.equal(m.requests.length,1);
 });
 test('asset availability and invalid slot errors retain safe recovery without retries',async()=>{
@@ -590,7 +660,7 @@ test('asset availability and invalid slot errors retain safe recovery without re
   }
 });
 test('public candidate shares remote operations while excluding private implementation',async()=>{
-  const pkg=JSON.parse(await readFile(new URL('../PACKAGE.json',import.meta.url),'utf8'));
+  const pkg=JSON.parse(await readFile(new URL('../SKILL-MANIFEST.json',import.meta.url),'utf8'));
   assert.deepEqual(pkg.remote_private_creative_operations,creativeOps);
   assert.equal(pkg.same_features_for_all_account_tiers,true);
   assert.equal(pkg.proprietary_source_files_included,false);
@@ -664,20 +734,48 @@ test('malformed capability and result contracts never become success',async()=>{
 });
 test('creative transport sends each supported operation once using the existing session and stable key',async()=>{
   for(const operation of creativeOps){
-    const m=fake(creativeBody(operation,{state:'DRAFT_NOT_RUN',synthetic:true}));
-    const out=await run(creativeArgs(operation),m,creativeEnv,{input:Buffer.from('{"synthetic":"input"}')});
+    const fixture=creativeFixture(operation),m=fake(creativeBody(operation,fixture.result));
+    const out=await run(creativeArgs(operation),m,creativeEnv,{input:Buffer.from(JSON.stringify(fixture.input))});
     assert.equal(m.requests.length,1);
     const call=m.requests[0];
     assert.equal(call.method,'POST');assert.equal(call.redirect,'error');
     assert.equal(call.auth,'Bearer synthetic-authorized-session');
     assert.equal(call.requestId,'task-fixture-00000001');
     assert.equal(call.url,'https://www.promptplaza.cn/v1/skill/creative');
-    assert.deepEqual(JSON.parse(call.body),{schema:'promptplaza-skill-request-v1',operation,input:{synthetic:'input'}});
+    assert.deepEqual(JSON.parse(call.body),{schema:'promptplaza-skill-request-v1',operation,input:fixture.input});
     assert.equal(out.operation,operation);assert.equal(out.execution,'NOT_RUN');assert.equal(out.generation_calls,0);
     const createsDraft=!operation.startsWith('interview-')&&!['case-ideas','recipe-catalog'].includes(operation);
     assert.equal(out.draft_status,createsDraft?'DRAFT_NOT_RUN':undefined);
     assert.doesNotMatch(JSON.stringify(out),/synthetic-authorized-session/);
   }
+});
+test('each creative operation rejects empty business results instead of reporting success',async()=>{
+  for(const operation of creativeOps){
+    const fixture=creativeFixture(operation),m=fake(creativeBody(operation,{}));
+    await assert.rejects(run(creativeArgs(operation),m,creativeEnv,{input:JSON.stringify(fixture.input)}),{code:'API_SKILL_CONTRACT_INVALID'});
+    assert.equal(m.requests.length,1);
+  }
+});
+test('creative delivery validates prompt digests, identity, quantities, references and interview state',async()=>{
+  const invalid=[];
+  const bad=(op,change)=>{const f=creativeFixture(op);change(f.result);invalid.push([op,f]);};
+  bad('compile',r=>r.artifacts[0].model_prompt='');
+  bad('compile',r=>r.artifacts[0].model_prompt_sha256='0'.repeat(64));
+  bad('compile',r=>r.artifacts.push({...r.artifacts[0]}));
+  bad('compile',r=>r.artifacts[0].id='unrequested-deliverable');
+  bad('compile',r=>r.references.push({id:'unknown'}));
+  bad('revise',r=>r.changed_shots=['unrequested-shot']);
+  bad('revise',r=>r.package.artifacts[0].shots[0].reference_ids=['unknown-reference']);
+  bad('remix',r=>r.plan.spec_sha256='0'.repeat(64));
+  bad('remix-revise',r=>r.plan.state='DRAFT_NOT_RUN');
+  bad('interview-new',r=>r.next.expected_digest='0'.repeat(64));
+  bad('interview-answer',r=>r.next.state='GENERATED_MEDIA');
+  bad('interview-next',r=>delete r.question);
+  bad('recipe-catalog',r=>r.recipes=[{id:'broken-recipe'}]);
+  bad('recipe-compile',r=>r.prompt_sha256='0'.repeat(64));
+  bad('case-ideas',r=>r.available=true);
+  for(const [operation,f] of invalid)await assert.rejects(run(creativeArgs(operation),fake(creativeBody(operation,f.result)),creativeEnv,
+    {input:JSON.stringify(f.input)}),{code:'API_SKILL_CONTRACT_INVALID'});
 });
 test('creative requires known operation, stdin, stable ID and authorized session before reading input or network',async()=>{
   const m=fake(creativeBody());

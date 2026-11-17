@@ -9,7 +9,7 @@ Turn the user's idea or references into a complete image/video Prompt, with
 clear preservation, changes and follow-up revisions. Creative adaptation is the
 core workflow; search supplies relevant references when the task needs them.
 
-This is the unified client **0.2.0-beta.1**, retaining `promptplaza-basic`
+This is unified client **0.2.0-beta.2**, retaining `promptplaza-basic`
 for installation compatibility. Confirm availability through `capabilities`;
 help text alone is not live service evidence. Basic beta.8 remains a historical
 search/get/download release.
@@ -64,7 +64,9 @@ node scripts/plaza-basic.mjs creative compile --input - --request-id task-user-d
 Ask the user to run `node /absolute/skill/scripts/plaza-basic.mjs login` in
 **their own interactive terminal**. Password entry is hidden; it is sent only to
 the official website login endpoint and never saved. The session is stored in
-`~/.local/state/promptplaza/session.json` (directory0700, file0600). Never ask for
+`~/.local/state/promptplaza/session.json`. POSIX uses directory0700/file0600;
+Windows requires its system Windows PowerShell and encrypts the complete session
+with DPAPI CurrentUser before writing. Protection failure never falls back to plaintext. Never ask for
 passwords or tokens in chat, extract browser cookies or put credentials in
 command arguments. A trusted host may still supply `PROMPTPLAZA_TOKEN` directly.
 `logout` removes the local session and reports whether server revocation was
@@ -76,7 +78,7 @@ is followed. Interactive login accepts only the default official origin.
 `capabilities` returns public pack IDs, operation names, the same-features flag,
 `requires_session_for_creative`, `admission_configured` and `site_assets_configured`. A false admission
 flag means creative execution is not configured. Discovery does not consume
-or prove a creative task. Do not describe the candidate as live from help text.
+or prove a creative task. Do not infer live service readiness from help text.
 
 The client returns known `operations` and lists missing known operations in
 `unavailable_operations`. Check that the intended operation is advertised before
@@ -93,7 +95,10 @@ For creative requests:
 - The server authenticates the session and owns admission/idempotency. Client
   headers do not prove actual daily quotas or durable billing are implemented.
 - A successful response has `schema: promptplaza-skill-result-v1`, the requested
-  `operation`, `result`, and `execution: NOT_RUN`. Use `model_prompt` for the
+  `operation`, `result`, and `execution: NOT_RUN`. The client checks per-operation result shapes, prompt digests, deliverable/shot IDs,
+  reference bindings, interview state/digest and recipe structure. A malformed
+  result is a protocol failure even if HTTP succeeded; retain the request key
+  and inspect status rather than creating a new charged task. Use `model_prompt` for the
   copyable draft; `prompt` is a separate audit view. Do not promise media output.
 - Only text you have permission to send may be submitted. The command sends
   that text to the private service; it never uploads files or media references.
@@ -344,15 +349,17 @@ A private-service failure never silently becomes a success via this alternative.
 ## Search, original text and download
 
 ```bash
-node scripts/plaza-basic.mjs search "product poster" --kind image --limit 3
-node scripts/plaza-basic.mjs search --author ACTUAL_RETURNED_HANDLE --duration 16-30 --limit 3
+node scripts/plaza-basic.mjs search "product poster" --kind image --limit 3 --request-id search-product-00000001
+node scripts/plaza-basic.mjs search --author ACTUAL_RETURNED_HANDLE --duration 16-30 --limit 3 --request-id search-author-00000001
 node scripts/plaza-basic.mjs get ACTUAL_RETURNED_CASE_ID
 node scripts/plaza-basic.mjs download ACTUAL_RETURNED_CASE_ID --output /absolute/private/new-file.txt
 ```
 
 Search accepts `kind`, `limit` (1–20), `category`, `model`, `style`,
-`aspect`, `author`, `duration` and optional stable `--request-id`. Continue only
-with `--cursor RETURNED_CURSOR` and no other filters. Use returned author handles/duration tag IDs;
+`aspect`, `author`, `duration` and **required** stable `--request-id`. Choose and retain the ID before the
+first submission; reuse the exact ID and normalized input after an interrupted
+process. Continue only with `--cursor RETURNED_CURSOR --request-id ORIGINAL_SEARCH_ID`
+and no other filters. A changed task requires an intentionally new ID. Use returned author handles/duration tag IDs;
 do not invent unsupported filters. Retrieve only relevant selected cases,
 usually up to three. Use returned `case_url` for the official page and
 `source_url` for external attribution. Missing links stay unavailable; do not
@@ -361,7 +368,8 @@ construct routes from IDs or replace the official page with an author link.
 An original requires `prompt_status: full`, `prompt_available: true` and actual
 text from the current copy-authorized endpoint. Excerpts, translations, preview
 cards and missing text are never complete originals. The CLI checks original
-UTF-8 bytes and SHA-256. Download writes a new private file, never an existing
+UTF-8 bytes and SHA-256. Download writes a new file (POSIX0600; on Windows choose a private parent directory
+because its ACL is inherited), never an existing
 file or a path inside the current working tree or installed Skill directory.
 
 Report unavailable source access and offer the returned official link or the
