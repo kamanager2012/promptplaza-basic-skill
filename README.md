@@ -2,17 +2,17 @@
 
 把你的想法、已有提示词和授权参考，整理成完整的图片或视频提示词，继续做多案例二创、系列设计、逐问补全和指定镜头修订。搜索用于寻找参考，二创是核心。
 
-开源客户端 **0.2.0-beta.2**；核心二创算法在 PromptPlaza 私有服务运行。无需 npm 依赖，需要 Node.js22+。
+开源客户端 **0.2.0-beta.3**；核心二创算法在 PromptPlaza 私有服务运行。无需 npm 依赖，需要 Node.js22+。
 
 ## 安装与登录
 
-需要 Node.js 22+。本版 beta.2 的安装命令固定到版本 tag；旧版 beta.1 的 tag 和 ZIP 保留。升级请安装到新目录，确认成功后再替换旧安装。
+需要 Node.js 22+。本版 beta.3 的安装命令固定到版本 tag；旧版 beta.2 / beta.1 的 tag 和 ZIP 保留。升级请安装到新目录，确认成功后再替换旧安装。
 
 Linux / macOS（macOS 原生验收尚未完成）：
 
 ```bash
 skill_path="$HOME/.agents/skills/promptplaza-basic"
-git clone --branch v0.2.0-beta.2 --depth 1 https://github.com/kamanager2012/promptplaza-basic-skill.git "$skill_path"
+git clone --branch v0.2.0-beta.3 --depth 1 https://github.com/kamanager2012/promptplaza-basic-skill.git "$skill_path"
 node "$skill_path/scripts/plaza-basic.mjs" help
 node "$skill_path/scripts/plaza-basic.mjs" login
 ```
@@ -21,7 +21,7 @@ Windows PowerShell：
 
 ```powershell
 $skillPath = Join-Path $env:USERPROFILE '.agents\skills\promptplaza-basic'
-git clone --branch v0.2.0-beta.2 --depth 1 https://github.com/kamanager2012/promptplaza-basic-skill.git $skillPath
+git clone --branch v0.2.0-beta.3 --depth 1 https://github.com/kamanager2012/promptplaza-basic-skill.git $skillPath
 node "$skillPath\scripts\plaza-basic.mjs" help
 node "$skillPath\scripts\plaza-basic.mjs" login
 ```
@@ -52,7 +52,7 @@ node "$skillPath\scripts\plaza-basic.mjs" login
 
 成功编译、修订、二创或配方编译计一次创作。逐问步骤、方向读取、配方目录、额度/状态查询不扣创作次数。新的有效搜索计一次，空结果也计次。提交前必须显式提供并保留 `--request-id`；重试原命令和翻页沿用原键，不自动生成新的扣次键。每次搜索最多5页，每页最多20条，1小时内通过返回游标翻页，不重复扣搜索次数。切换条件是新搜索。
 
-确定失败释放预占；PENDING/UNKNOWN 保留原键与输入，先查状态，不自动重派、不自行换键。
+确定失败释放预占；PENDING/UNKNOWN 保留原键与输入，先查状态，不自动重派、不自行换键。若运营完成中断恢复，状态会明确标记预占已释放；原键仍为失败，只有用户明确选择后才新建任务。
 
 ```bash
 node scripts/plaza-basic.mjs capabilities

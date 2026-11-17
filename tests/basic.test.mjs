@@ -130,6 +130,22 @@ test('unknown and pending receipts retain recovery guidance without automatic re
   }
   assert.match(explainFailure({code:'SKILL_REQUEST_UNKNOWN'}).next_step,/status REQUEST_ID/);
 });
+test('operator-recovered requests remain terminal and surface the released reservation without a retry',async()=>{
+  const env={PROMPTPLAZA_TOKEN:'synthetic-session'},id='request-0000000001';
+  const errorApi=fake({ok:false,error:'SKILL_REQUEST_RECOVERED',execution:'NOT_RUN'},409);
+  await assert.rejects(execute(['status',id],{env,fetchImpl:errorApi.call}),{code:'SKILL_REQUEST_RECOVERED'});
+  assert.equal(errorApi.requests.length,1);
+  const guidance=explainFailure({code:'SKILL_REQUEST_RECOVERED'});
+  assert.equal(guidance.retryable,false);assert.match(guidance.next_step,/explicitly choose/);
+  const body={ok:true,schema:'promptplaza-skill-request-status-v1',request_id:id,
+    operation:'compile',state:'FAILED',bucket:'creative',quota_day:'2026-11-17',policy_version:'fixture-v1',
+    created_at:'2026-11-17T03:00:00.000Z',updated_at:'2026-11-17T03:00:01.000Z',
+    resolution:'RESERVATION_RELEASED',failure_code:'SKILL_REQUEST_RECOVERED',execution:'NOT_RUN'};
+  const api=fake(body);const result=await execute(['status',id],{env,fetchImpl:api.call});
+  assert.equal(result.resolution,'RESERVATION_RELEASED');assert.equal(api.requests.length,1);
+  for(const changed of [{state:'COMPLETED'},{failure_code:'UNTRUSTED'},{resolution:'RETRY_NOW'}])
+    await assert.rejects(execute(['status',id],{env,fetchImpl:fake({...body,...changed}).call}),{code:'API_SKILL_CONTRACT_INVALID'});
+});
 
 function fake(body, status = 200) {
   const requests = [];

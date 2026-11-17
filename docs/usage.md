@@ -4,11 +4,11 @@
 
 ## 登录与创作
 
-统一客户端0.2.0-beta.2。安装目录与Windows PowerShell命令见[README](../README.md)。让 Agent 使用 `$promptplaza-basic` 完成图片/视频提示词、逐问、多案例二创和指定镜头修订。完整协议见 [SKILL.md](../SKILL.md)；私有核心在服务器，生成媒体另行操作。
+统一客户端0.2.0-beta.3。安装目录与Windows PowerShell命令见[README](../README.md)。让 Agent 使用 `$promptplaza-basic` 完成图片/视频提示词、逐问、多案例二创和指定镜头修订。完整协议见 [SKILL.md](../SKILL.md)；私有核心在服务器，生成媒体另行操作。
 
 请在自己的终端运行 `node /absolute/path/scripts/plaza-basic.mjs login`，使用网站账号，密码输入隐藏。密码不保存，会话单独保存在 `~/.local/state/promptplaza/session.json`（POSIX目录0700/文件0600；Windows由系统Windows PowerShell使用DPAPI CurrentUser加密，不保存明文）；不要发送密码或token到聊天。`logout` 删除本机会话并报告服务端撤销结果。
 
-免费账号每天创作10次、搜索50次，上海时间零点恢复。会员暂不开收费，功能相同。网页匿名浏览保持原样。`usage` 查看当前额度，`status REQUEST_ID` 查询自己的任务；PENDING/UNKNOWN 不换键重试。
+免费账号每天创作10次、搜索50次，上海时间零点恢复。会员暂不开收费，功能相同。网页匿名浏览保持原样。`usage` 查看当前额度，`status REQUEST_ID` 查询自己的任务；PENDING/UNKNOWN 不换键重试。若状态为 FAILED 且标记 RESERVATION_RELEASED，表示运营已关闭中断请求并释放预占；原键保持终态，核对 usage 后由用户明确决定是否新建任务。
 
 ## 检索参考
 
