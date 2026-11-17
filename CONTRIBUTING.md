@@ -32,6 +32,6 @@ python3 tools/check-repository.py --smoke
 
 ## 目录与发行规则
 
-九文件安装包为 `LICENSE`、`NOTICE`、`README.md`、`SKILL.md`、`THIRD-PARTY.md`、`PACKAGE.json`、`package.json`、`scripts/plaza-basic.mjs`、`tests/basic.test.mjs`。仓库文档、维护工具和 CI 独立维护，不进入安装 ZIP。
+九文件安装包为 `LICENSE`、`NOTICE`、`README.md`、`SKILL.md`、`THIRD-PARTY.md`、`SKILL-MANIFEST.json`、`package.json`、`scripts/plaza-basic.mjs`、`tests/basic.test.mjs`。清单名与 npm 元数据不再只以大小写区分，避免 Windows 等文件系统覆盖。仓库文档、维护工具和 CI 独立维护，不进入安装 ZIP。
 
 `package.json` 保留 `private: true`，避免误发 npm。维护者发布新版本前会核对软件许可、文件清单、安装与限定回归；涉及新的宿主行为时另行验证。文档更新不会改写已经公开的版本历史，也不能将历史证据升级成当前版本的保证。

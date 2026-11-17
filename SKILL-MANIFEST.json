@@ -1,7 +1,7 @@
 {
   "schema": "promptplaza-basic-package-v1",
   "name": "promptplaza-basic",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "license": "Apache-2.0",
   "status": "PUBLIC_BETA",
   "api_origin_default": "https://www.promptplaza.cn",

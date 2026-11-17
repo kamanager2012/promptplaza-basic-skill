@@ -34,4 +34,15 @@ jobs:
       - name: Verify repository, run bounded offline tests and clean installation
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 tools/check-repository.py --smoke
+        run: python3 tools/check-repository.py --package .runtime/release
+      - name: Retain the tested nine-file ZIP, checksum and build receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: basic-release-${{ github.sha }}
+          path: |
+            .runtime/release/promptplaza-basic-*.zip
+            .runtime/release/SHA256SUMS
+            .runtime/release/build.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
