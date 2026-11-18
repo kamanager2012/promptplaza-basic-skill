@@ -444,17 +444,83 @@ function validInterviewNext(value,brief){
   if(['BLOCKED_QUESTION_BUDGET','BLOCKED_INCONSISTENT_BRIEF'].includes(value.state))return boundedText(value.missing,80);
   return ['BLOCKED_ESSENTIAL_INPUT','BLOCKED_SEARCH_QUERY_MISSING'].includes(value.state);
 }
+function validRevision(operation,result,input){
+  // Public modification boundaries only; no private prompt/compiler rules.
+  const only=(value,keys)=>plainRecord(value)&&Object.keys(value).every(k=>keys.includes(k));
+  const same=(a,b)=>protocolDigest(a)===protocolDigest(b);
+  const copy=value=>JSON.parse(JSON.stringify(value));
+  const overlap=(a,b)=>a===b||a.startsWith(b+'.')||b.startsWith(a+'.');
+  if(operation==='revise'){
+    if(!only(input,['spec','change'])||!only(input.change,['shot_id','changes'])||
+      !only(input.change.changes,['action','camera','audio'])||!Object.keys(input.change.changes).length||
+      !Object.values(input.change.changes).every(v=>boundedText(v,8000))||!plainRecord(input.spec)||
+      !uniqueIds(input.spec.shots,24))return false;
+    const expected=copy(input.spec),shot=expected.shots.find(s=>s.id===input.change.shot_id);
+    if(!shot)return false;
+    Object.assign(shot,input.change.changes);
+    return same(result.spec,expected)&&same(result.changed_shots,[shot.id]);
+  }
+  const base=input.plan,patch=input.change;
+  if(!only(input,['plan','change'])||!plainRecord(base)||base.schema!=='plaza-remix-plan-1'||
+    !['DRAFT_NOT_RUN','REVISED_NOT_RUN'].includes(base.state)||!plainRecord(base.spec)||
+    !only(patch,['expected_spec_sha256','replace','adapt','deliverables','shots'])||
+    patch.expected_spec_sha256!==base.spec_sha256||base.spec_sha256!==protocolDigest(base.spec,true)||
+    !Array.isArray(base.revisions)||!Array.isArray(base.source_trace)||!plainRecord(base.checks))return false;
+  const expected=copy(base),changed=[],touched=[];
+  for(const group of ['replace','adapt']){
+    const updates=Object.hasOwn(patch,group)?patch[group]:{};
+    if(!plainRecord(updates)||!plainRecord(expected.spec[group]))return false;
+    for(const [key,value] of Object.entries(updates)){
+      if(!/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/.test(key)||
+        key.split('.').some(k=>['__proto__','prototype','constructor'].includes(k))||
+        !Object.hasOwn(expected.spec[group],key)||!boundedText(value,8000)||
+        !plainRecord(expected.spec.preserve)||Object.keys(expected.spec.preserve).some(k=>overlap(k,key)))return false;
+      touched.push(key);
+      if(expected.spec[group][key]!==value)changed.push(group+'.'+key);
+      expected.spec[group][key]=value;
+    }
+  }
+  if(!Array.isArray(expected.spec.dependencies)||expected.spec.dependencies.some(d=>
+    !plainRecord(d)||typeof d.when!=='string'||!Array.isArray(d.requires)||
+    d.requires.some(k=>typeof k!=='string')||
+    touched.some(k=>overlap(d.when,k))&&d.requires.some(k=>!touched.some(x=>overlap(k,x)))))return false;
+  for(const [group,keys] of [['deliverables',['direction','text']],['shots',['action','camera','audio']]]){
+    const updates=Object.hasOwn(patch,group)?patch[group]:[];
+    if(!Array.isArray(updates)||updates.length>24||new Set(updates.map(x=>x?.id)).size!==updates.length)return false;
+    if(updates.length&&!uniqueIds(expected.spec[group],24))return false;
+    for(const update of updates){
+      if(!only(update,['id',...keys])||Object.keys(update).length<2)return false;
+      const target=expected.spec[group].find(x=>x.id===update.id);
+      if(!target)return false;
+      for(const [key,value] of Object.entries(update)){
+        if(key==='id')continue;
+        if(key!=='text'&&!boundedText(value,8000))return false;
+        if(key==='text'&&(!only(value,['mode','value'])||!['none','preserve','exact'].includes(value.mode)||
+          (value.mode==='exact'?!boundedText(value.value,8000):Object.hasOwn(value,'value'))))return false;
+        if(!same(target[key],value))changed.push(group+'.'+update.id+'.'+key);
+        target[key]=copy(value);
+      }
+    }
+  }
+  if(!changed.length)return false;
+  expected.spec_sha256=protocolDigest(expected.spec,true);
+  for(const row of expected.source_trace){
+    if(!plainRecord(row)||typeof row.field!=='string')return false;
+    if(touched.some(k=>overlap(row.field,k)))row.revision_status='USER_EDITED_AFTER_SOURCE_SELECTION';
+  }
+  expected.revisions.push({before:base.spec_sha256,after:expected.spec_sha256,changed});
+  expected.state='REVISED_NOT_RUN';
+  expected.checks.original_compiler='NOT_RUN';expected.checks.generation='NOT_RUN';
+  return same(result.plan,expected);
+}
 function validCreativeResult(operation,result,input){
   if(!plainRecord(result))return false;
   if(operation==='compile')return validPackage(result,input);
-  if(operation==='revise')return plainRecord(result.spec)&&result.spec.schema==='plaza-creative-pack-1'&&
-    validPackage(result.package,result.spec)&&Array.isArray(result.changed_shots)&&result.changed_shots.length===1&&
-    result.changed_shots[0]===input.change?.shot_id&&result.spec.shots?.some(s=>s.id===result.changed_shots[0])&&
-    input.spec?.deliverables?.length===result.spec.deliverables.length&&
-    input.spec.deliverables.every(d=>result.spec.deliverables.some(x=>x.id===d.id));
+  if(operation==='revise')return validRevision(operation,result,input)&&validPackage(result.package,result.spec);
   if(operation==='remix'||operation==='remix-revise')return result.plan?.schema==='plaza-remix-plan-1'&&
     result.plan.state===(operation==='remix-revise'?'REVISED_NOT_RUN':'DRAFT_NOT_RUN')&&plainRecord(result.plan.spec)&&
-    result.plan.spec_sha256===protocolDigest(result.plan.spec,true)&&validPackage(result.package,result.plan.spec);
+    result.plan.spec_sha256===protocolDigest(result.plan.spec,true)&&validPackage(result.package,result.plan.spec)&&
+    (operation!=='remix-revise'||validRevision(operation,result,input));
   if(operation==='interview-next')return validInterviewNext(result,input.brief);
   if(operation==='interview-new'||operation==='interview-answer')return validInterviewNext(result.next,result.brief);
   if(operation==='case-ideas'){
