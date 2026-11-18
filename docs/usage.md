@@ -4,7 +4,7 @@
 
 ## 登录与创作
 
-统一客户端0.2.0-beta.3。安装目录与Windows PowerShell命令见[README](../README.md)。让 Agent 使用 `$promptplaza-basic` 完成图片/视频提示词、逐问、多案例二创和指定镜头修订。完整协议见 [SKILL.md](../SKILL.md)；私有核心在服务器，生成媒体另行操作。
+统一客户端0.2.0-beta.4。安装目录与Windows PowerShell命令见[README](../README.md)。让 Agent 使用 `$promptplaza-basic` 完成图片/视频提示词、逐问、多案例二创和指定镜头修订。完整协议见 [SKILL.md](../SKILL.md)；私有核心在服务器，生成媒体另行操作。
 
 请在自己的终端运行 `node /absolute/path/scripts/plaza-basic.mjs login`，使用网站账号，密码输入隐藏。密码不保存，会话单独保存在 `~/.local/state/promptplaza/session.json`（POSIX目录0700/文件0600；Windows由系统Windows PowerShell使用DPAPI CurrentUser加密，不保存明文）；不要发送密码或token到聊天。`logout` 删除本机会话并报告服务端撤销结果。
 
@@ -21,8 +21,8 @@ node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search "产品广�
 按作者查询时可省略主题，也可组合主题、类型和时长：
 
 ```bash
-node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search --author ACTUAL_RETURNED_HANDLE --limit 3 --request-id search-reference-000001
-node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search "product" --kind video --author ACTUAL_RETURNED_HANDLE --duration 16-30 --limit 3 --request-id search-reference-000001
+node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search --author ACTUAL_RETURNED_HANDLE --limit 3 --request-id search-author-000001
+node .agents/skills/promptplaza-basic/scripts/plaza-basic.mjs search "product" --kind video --author ACTUAL_RETURNED_HANDLE --duration 16-30 --limit 3 --request-id search-author-video-000001
 ```
 
 把 `ACTUAL_RETURNED_HANDLE` 换成搜索结果中的真实 `author_handle`。时长使用结果中 `search_tags.duration` 的分类 ID；`16-30` 是示例，不是任意秒数表达式。缺失作者、时长、参考素材需求时保持未知。作者相同不表示属于同一系列；模型标签不表示本 Skill 或 Plaza 已复现该效果。

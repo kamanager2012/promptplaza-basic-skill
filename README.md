@@ -2,17 +2,17 @@
 
 把你的想法、已有提示词和授权参考，整理成完整的图片或视频提示词，继续做多案例二创、系列设计、逐问补全和指定镜头修订。搜索用于寻找参考，二创是核心。
 
-开源客户端 **0.2.0-beta.3**；核心二创算法在 PromptPlaza 私有服务运行。无需 npm 依赖，需要 Node.js22+。
+开源客户端 **0.2.0-beta.4**；核心二创算法在 PromptPlaza 私有服务运行。无需 npm 依赖，需要 Node.js22+。
 
 ## 安装与登录
 
-需要 Node.js 22+。本版 beta.3 的安装命令固定到版本 tag；旧版 beta.2 / beta.1 的 tag 和 ZIP 保留。升级请安装到新目录，确认成功后再替换旧安装。
+需要 Node.js 22+。本版 beta.4 的安装命令固定到版本 tag；旧版 beta.3 / beta.2 / beta.1 的 tag 和 ZIP 保留。升级请安装到新目录，确认成功后再替换旧安装。
 
 Linux / macOS（macOS 原生验收尚未完成）：
 
 ```bash
 skill_path="$HOME/.agents/skills/promptplaza-basic"
-git clone --branch v0.2.0-beta.3 --depth 1 https://github.com/kamanager2012/promptplaza-basic-skill.git "$skill_path"
+git clone --branch v0.2.0-beta.4 --depth 1 https://github.com/kamanager2012/promptplaza-basic-skill.git "$skill_path"
 node "$skill_path/scripts/plaza-basic.mjs" help
 node "$skill_path/scripts/plaza-basic.mjs" login
 ```
@@ -21,7 +21,7 @@ Windows PowerShell：
 
 ```powershell
 $skillPath = Join-Path $env:USERPROFILE '.agents\skills\promptplaza-basic'
-git clone --branch v0.2.0-beta.3 --depth 1 https://github.com/kamanager2012/promptplaza-basic-skill.git $skillPath
+git clone --branch v0.2.0-beta.4 --depth 1 https://github.com/kamanager2012/promptplaza-basic-skill.git $skillPath
 node "$skillPath\scripts\plaza-basic.mjs" help
 node "$skillPath\scripts\plaza-basic.mjs" login
 ```

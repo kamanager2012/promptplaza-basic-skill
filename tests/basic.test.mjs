@@ -620,6 +620,7 @@ function creativeFixture(operation='compile'){
   const canonical=v=>Array.isArray(v)?'['+v.map(canonical).join(',')+']':v&&typeof v==='object'?
     '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}':JSON.stringify(v);
   const spec={schema:'plaza-creative-pack-1',pack:'product-series',mode:'free',references:[],
+    preserve:{subject:'Blue cup'},replace:{background:'Paper hills'},adapt:{lighting:'Soft light'},dependencies:[],
     deliverables:[{id:'draft-1'}]};
   const prompt='Complete synthetic blue cup prompt.';
   const artifact={id:'draft-1',aspect:'1:1',prompt,model_prompt:prompt,prompt_sha256:hash(prompt),
@@ -628,12 +629,26 @@ function creativeFixture(operation='compile'){
     references:[],source:null,artifacts:[artifact],checks:{structure:'PASS',visual:'NOT_RUN'}};
   if(operation==='compile')return {input:spec,result:pack};
   if(operation==='revise'){
-    spec.shots=[{id:'shot-1',start:0,end:1,references:[]}];
-    artifact.shots=[{...artifact,id:'shot-1',planned_start:0,planned_end:1,reference_ids:[]}];
-    return {input:{spec,change:{shot_id:'shot-1'}},result:{spec,package:pack,changed_shots:['shot-1']}};
+    spec.shots=['shot-1','shot-2'].map((id,i)=>({id,start:i,end:i+1,references:[],
+      action:'Cup stays still.',camera:'Wide view.',audio:'Room tone.'}));
+    artifact.shots=spec.shots.map(s=>({...artifact,id:s.id,planned_start:s.start,planned_end:s.end,reference_ids:[]}));
+    const updated=structuredClone(spec);updated.shots[0].camera='Close view.';
+    return {input:{spec,change:{shot_id:'shot-1',changes:{camera:'Close view.'}}},
+      result:{spec:updated,package:pack,changed_shots:['shot-1']}};
   }
-  if(operation.startsWith('remix'))return {input:{spec},result:{plan:{schema:'plaza-remix-plan-1',state:operation==='remix-revise'?'REVISED_NOT_RUN':'DRAFT_NOT_RUN',
-    spec,spec_sha256:hash(canonical(spec))},package:pack}};
+  if(operation.startsWith('remix')){
+    const plan={schema:'plaza-remix-plan-1',state:'DRAFT_NOT_RUN',spec,spec_sha256:hash(canonical(spec)),
+      source_trace:[{field:'background',source_id:'source-1',selected:true}],revisions:[],
+      source_count:1,declared_parent_count:1,sharing:'RIGHTS_NOT_VERIFIED',resolutions:{},
+      checks:{rights:'NOT_AUTHENTICATED',original_compiler:'NOT_RUN',generation:'NOT_RUN'}};
+    if(operation==='remix')return {input:{spec},result:{plan,package:pack}};
+    const updated=structuredClone(plan);updated.spec.replace.background='Paper meadow';
+    updated.spec_sha256=hash(canonical(updated.spec));updated.state='REVISED_NOT_RUN';
+    updated.source_trace[0].revision_status='USER_EDITED_AFTER_SOURCE_SELECTION';
+    updated.revisions.push({before:plan.spec_sha256,after:updated.spec_sha256,changed:['replace.background']});
+    return {input:{plan,change:{expected_spec_sha256:plan.spec_sha256,replace:{background:'Paper meadow'}}},
+      result:{plan:updated,package:pack}};
+  }
   const brief={schema:'plaza-creative-brief-v1',revision:0,track:'video',mode:'guided-create',task:{},search:{},case:{},history:[]};
   const next={schema:'plaza-interview-next-v1',state:'ASK_ONE',revision:0,track:'video',mode:'guided-create',
     expected_digest:hash(canonical(brief)),questions_asked:0,question_budget:3,generation_calls:0,media_fetches:0,
@@ -649,6 +664,73 @@ function creativeFixture(operation='compile'){
 function creativeBody(operation='compile',result=creativeFixture(operation).result){
   return {ok:true,schema:'promptplaza-skill-result-v1',operation,result,execution:'NOT_RUN'};
 }
+const revisionDigest=value=>createHash('sha256').update((function encode(v){
+  return Array.isArray(v)?'['+v.map(encode).join(',')+']':v&&typeof v==='object'?
+    '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+encode(v[k])).join(',')+'}':JSON.stringify(v);
+})(value)).digest('hex');
+const revisionClient=(op,f)=>run(creativeArgs(op),fake(creativeBody(op,f.result)),creativeEnv,{input:JSON.stringify(f.input)});
+for(const [name,mutate] of [
+  ['unselected shot action',f=>f.result.spec.shots[1].action='Unrequested jump.'],
+  ['selected shot unrequested audio',f=>f.result.spec.shots[0].audio='Unrequested music.'],
+  ['wrong requested camera',f=>f.result.spec.shots[0].camera='Wrong view.'],
+  ['existing subject lock',f=>f.result.spec.preserve.subject='Red ball'],
+  ['delivery direction',f=>f.result.spec.deliverables[0].direction='Unrequested direction.'],
+  ['source lineage',f=>f.result.spec.source={id:'other-source',origin:'public',prompt:'Other text.'}],
+])test('revision rejects '+name+' changes',async()=>{
+  const f=creativeFixture('revise'),before=structuredClone(f.input);mutate(f);
+  if(f.result.spec.source)f.result.package.source={id:f.result.spec.source.id,origin:f.result.spec.source.origin,
+    prompt_sha256:createHash('sha256').update(f.result.spec.source.prompt).digest('hex')};
+  await assert.rejects(revisionClient('revise',f),{code:'API_SKILL_CONTRACT_INVALID'});
+  assert.deepEqual(f.input,before);
+});
+for(const [name,mutate] of [
+  ['unrequested subject',p=>p.spec.preserve.subject='Red ball'],
+  ['unrequested lighting',p=>p.spec.adapt.lighting='Harsh light'],
+  ['new dimension',p=>p.spec.replace.motion='Spin'],
+  ['wrong requested value',p=>p.spec.replace.background='Wrong meadow'],
+  ['source trace removal',p=>p.source_trace=[]],
+  ['source attribution',p=>p.source_trace[0].source_id='other-source'],
+  ['parent count',p=>p.declared_parent_count=2],
+  ['sharing status',p=>p.sharing='PUBLIC_AUTHORIZED'],
+  ['resolution',p=>p.resolutions={background:'other-source'}],
+  ['history origin',p=>p.revisions[0].before='0'.repeat(64)],
+  ['history changed list',p=>p.revisions[0].changed.push('preserve.subject')],
+  ['generation claim',p=>p.checks.generation='VERIFIED'],
+])test('remix revision rejects '+name+' drift even with consistent spec hash',async()=>{
+  const f=creativeFixture('remix-revise'),before=structuredClone(f.input);mutate(f.result.plan);
+  f.result.plan.spec_sha256=revisionDigest(f.result.plan.spec);
+  f.result.plan.revisions.at(-1).after=f.result.plan.spec_sha256;
+  await assert.rejects(revisionClient('remix-revise',f),{code:'API_SKILL_CONTRACT_INVALID'});
+  assert.deepEqual(f.input,before);
+});
+test('revision accepts exact requested change and remix accepts a second Unicode revision with reordered keys',async()=>{
+  await revisionClient('revise',creativeFixture('revise'));
+  const first=creativeFixture('remix-revise');await revisionClient('remix-revise',first);
+  const plan=structuredClone(first.result.plan),next=structuredClone(plan);
+  next.spec.replace.background='纸质城市 🌲';next.spec_sha256=revisionDigest(next.spec);
+  next.revisions.push({before:plan.spec_sha256,after:next.spec_sha256,changed:['replace.background']});
+  const reverse=v=>Array.isArray(v)?v.map(reverse):v&&typeof v==='object'?
+    Object.fromEntries(Object.entries(v).reverse().map(([k,x])=>[k,reverse(x)])):v;
+  const f={input:{plan,change:{expected_spec_sha256:plan.spec_sha256,replace:{background:'纸质城市 🌲'}}},
+    result:{plan:reverse(next),package:first.result.package}};
+  assert.equal((await revisionClient('remix-revise',f)).result.plan.revisions.length,2);
+});
+test('remix revision rejects invalid patch, changed base and missing dependency reconfirmation',async()=>{
+  for(const mutate of [
+    f=>f.input.change.adapt=null,f=>f.input.change.shots=null,
+    f=>f.input.change.replace={subject:'Different'},f=>f.input.change.unrequested=true,
+    f=>f.input.change.expected_spec_sha256='0'.repeat(64),
+    f=>f.input.plan.spec.preserve.subject='Different base',
+    f=>{
+      f.input.plan.spec.dependencies=[{when:'background',requires:['lighting']}];
+      f.input.plan.spec_sha256=revisionDigest(f.input.plan.spec);
+      f.input.change.expected_spec_sha256=f.input.plan.spec_sha256;
+    }
+  ]){
+    const f=creativeFixture('remix-revise');mutate(f);
+    await assert.rejects(revisionClient('remix-revise',f),{code:'API_SKILL_CONTRACT_INVALID'});
+  }
+});
 function capabilityBody(extra={}){
   return {ok:true,schema:'promptplaza-skill-capabilities-v1',operations:creativeOps,
     same_features_for_all_plans:true,execution:'NOT_RUN',requires_session_for_creative:true,

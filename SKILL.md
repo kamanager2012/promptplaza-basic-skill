@@ -9,7 +9,7 @@ Turn the user's idea or references into a complete image/video Prompt, with
 clear preservation, changes and follow-up revisions. Creative adaptation is the
 core workflow; search supplies relevant references when the task needs them.
 
-This is unified client **0.2.0-beta.3**, retaining `promptplaza-basic`
+This is unified client **0.2.0-beta.4**, retaining `promptplaza-basic`
 for installation compatibility. Confirm availability through `capabilities`;
 help text alone is not live service evidence. Basic beta.8 remains a historical
 search/get/download release.
